@@ -71,10 +71,24 @@ Safety rules for every command the app sends (solve, scramble, scan):
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, then right and left to L (`SEQ FLBL600RLLL600`).
-* **Solve / Scramble:** the firmware's `MOVE` command always leaves the sliders at C, so the app sends the
-  same servo steps itself as `SEQ` commands, with every hold at **L**. A command never exceeds 250
-  characters (firmware buffer: 256). After a U/D move the cube is flipped, and at the end the robot flips
-  it back, so it ends where it started (chosen front and top).
+* **Solve / Scramble:** the app sends its own servo steps as `SEQ` commands (never more than 250
+  characters; firmware buffer 256), with every hold at **L**.
+
+## Solving algorithm (fewest rolls)
+
+The robot can turn the four faces that point at its arms; the faces pointing up and down need a roll first,
+and one roll takes about as long as five face turns. So the app optimises robot time, not move count:
+
+1. **Any of the 24 orientations, both roll types.** Besides the front/back roll (z) the left/right arms can
+   roll the cube too (x), so after a roll any two of the cube's three axes can be on the arms. For a given
+   move list a dynamic program over all 24 orientations picks the rolls (and their directions) that cost the
+   least time, including the way back to the start orientation at the end.
+2. **Many candidate solutions.** The two-phase (Kociemba) solver runs six times in parallel: on the cube
+   seen along each of its three axes and on the inverse cube, and keeps near-shortest solutions (up to 3
+   moves longer). Every candidate is planned as in 1; the fastest for the robot wins.
+
+On random cubes this needs about 4 rolls per solve, against about 10 with the old flip-for-every-U/D scheme,
+at the cost of 1–2 extra face turns.
 * The stock firmware cuts power to the servos 3 s after a command; the app then re-sends the slider
   positions every 2 s while a face waits for the camera. The Cube Robot Studio firmware (2.5+) keeps the
   servos powered all the time, so no re-sending is needed.

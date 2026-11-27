@@ -122,7 +122,7 @@ func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
 			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000, FollowPct: 60, AutoNext: true},
-		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
+		stateKnown: true, pose: "", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), nextCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
@@ -615,35 +615,21 @@ func (c *Controller) Solve() error {
 			return err
 		}
 	}
-	sols, err := Solve(tb, fac, 24, timeout)
+	_ = fac
+	ch, err := solveForRobot(tb, colors, timeout, c.rq.GetOrientation(), c.cfg().ReturnHome, d)
 	if err != nil {
 		return err
 	}
-	var best []string
-	bestMs := -1
-	shortest := 99
-	for _, s := range sols {
-		_, _, ms := buildTimeline(toRobotMoves(s), NORMAL, d)
-		if bestMs < 0 || ms < bestMs {
-			best, bestMs = s, ms
-		}
-		if len(s) < shortest {
-			shortest = len(s)
-		}
+	if applyMoves(colors, ch.Moves) != solvedColors(colors[9*2+4], colors[4]) {
+		return errors.New("internal error: solution does not solve the cube")
 	}
-	rm := toRobotMoves(best)
-	ev, _, _ := buildTimeline(rm, NORMAL, d)
-	flips := 0
-	for _, e := range ev {
-		if e.Kind == "pose" {
-			flips++
-		}
-	}
+	best, rm, bestMs, flips := ch.Moves, toRobotMoves(ch.Moves), ch.Ms+100, ch.Rolls
+	sols, shortest := ch.Tried, ch.Shortest
 	c.mu.Lock()
 	c.colors = colors
 	c.solution = best
 	c.solutionInfo = map[string]any{"moves": len(best), "robot_moves": len(rm), "flips": flips,
-		"est_ms": bestMs, "candidates": len(sols), "robot_string": rm, "shortest": shortest}
+		"est_ms": bestMs, "candidates": sols, "robot_string": rm, "shortest": shortest}
 	c.mu.Unlock()
 	c.PushState()
 	return nil
@@ -684,8 +670,8 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 	rm := toRobotMoves(moves)
 	c.bus.Emit(map[string]any{"type": "run", "moves": moves, "solve": isSolve, "delay": d})
 	idx := 0
-	for _, b := range buildSeqBatches(rm, c.rq.GetOrientation(), d) {
-		events, _, total := buildTimeline(b.Moves, b.StartOrient, d)
+	for _, b := range buildSeqBatches(rm, c.rq.GetOrientation(), d, c.cfg().ReturnHome) {
+		events, total := timeline(b.Steps, d)
 		tBusy, err := c.rq.Start("SEQ " + b.Seq)
 		if err != nil {
 			return err
@@ -699,16 +685,6 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 		}
 		c.flushTimers()
 		c.rq.SetOrientation(b.EndOrient)
-	}
-	if c.cfg().ReturnHome && c.rq.GetOrientation() == INVERT {
-		tBusy, err := c.rq.Start("SEQ " + rotateCubeSeq(NORMAL, d))
-		if err != nil {
-			return err
-		}
-		c.schedule([]*TLEvent{{At: 100 + 4*d, Dur: d, Kind: "pose", Pose: "NORMAL"}}, tBusy, idx)
-		c.rq.WaitIdle(30 * time.Second)
-		c.flushTimers()
-		c.rq.SetOrientation(NORMAL)
 	}
 	if isSolve {
 		c.mu.Lock()

@@ -84,7 +84,7 @@
   }
   function onState(st) {
     const prev = S && S.colors;
-    if (!S && st.pose === "INVERT") view.setPose(["z'"], 1);
+    if (!S && st.pose) view.setPose(st.pose.split(" "), 1);
     S = st;
     const r = st.robot, state = r.connected ? r.state : "OFFLINE";
     $("rs").textContent = st.busy_task ? `${state} · ${st.busy_task}` : state;
@@ -129,7 +129,7 @@
     } else if (ev.type === "move") {
       view.turn(ev.move, Math.max(120, ev.dur)); S.colors = ev.colors;
       if (runMap && S.solution) track(runMap[ev.index]);
-    } else if (ev.type === "pose") view.setPose(ev.pose === "INVERT" ? ["z'"] : [], ev.dur * 1.2);
+    } else if (ev.type === "pose") view.setPose(ev.pose ? ev.pose.split(" ") : [], ev.dur * 1.2);
     else if (ev.type === "run_done") { running = false; runMap = null; view.setColors(S.colors); }
   };
   $("open").onclick = () => post("/api/robot/open");

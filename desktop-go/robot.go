@@ -16,8 +16,7 @@ import (
 )
 
 const (
-	NORMAL   = 0
-	INVERT   = 1
+	NORMAL   = 0 // home orientation (orientations: see planner.go)
 	moveBuf  = 60
 	seqBuf   = 250
 	openSeq  = "RRLRFRBR600"    // all sliders R: released, cube can be taken out (glide together)
@@ -39,33 +38,6 @@ func toRobotMoves(moves []string) string {
 		}
 	}
 	return b.String()
-}
-
-func orientationAfter(ch byte, cur int) int {
-	c := byte(unicode.ToUpper(rune(ch)))
-	if c == 'U' || c == 'D' {
-		return INVERT
-	}
-	if c == 'L' || c == 'R' {
-		return NORMAL
-	}
-	return cur
-}
-
-// rotateCubeSeq flips the cube between NORMAL and INVERT (same steps as the
-// firmware's rotateCube) but every slider that holds the cube ends at L (clamped).
-func rotateCubeSeq(o, d int) string {
-	pre := "fLbR"
-	if o == INVERT {
-		pre = "fRbL"
-	}
-	s, p := sliderWait(d), pairWait(d)
-	// (R/L are clamped at L between moves.) Release F/B, pre-turn the free F/B grippers,
-	// clamp F/B HARD (H), ease R/L to C (touching), roll the cube while R/L follow it as
-	// a base (T: touching at 0/90 deg, backing off for the corners, grippers vertical),
-	// clamp R/L, then ease F/B back to L. Each step waits for the previous one to finish;
-	// only the following sliders (T) move together with the rolling spinners.
-	return fmt.Sprintf("FRBR%d%s%dFHBH%dRCLC%dfCfCbCbCRTLT%dRLLL%dFLBL%d", s, pre, p, s, s, p, s, s)
 }
 
 // Minimum times (ms) so a step has really finished before the next one starts, even
@@ -106,34 +78,6 @@ func maxInt(a, b int) int {
 	return b
 }
 
-// faceSeq turns one face (robot char, e.g. 'U' or 'u') with the arm that holds it;
-// the slider re-clamps at L afterwards (the firmware's MOVE would leave it at C).
-func faceSeq(ch byte, orient, d int) string {
-	up := byte(unicode.ToUpper(rune(ch)))
-	cw := unicode.IsUpper(rune(ch))
-	var arm byte
-	switch up {
-	case 'F':
-		arm = 'f'
-	case 'B':
-		arm = 'b'
-	case 'U', 'L':
-		arm = 'l'
-	case 'D', 'R':
-		arm = 'r'
-	}
-	dir := "R"
-	if !cw {
-		dir = "L"
-	}
-	slider := string(unicode.ToUpper(rune(arm)))
-	a := string(arm)
-	sw, sp := slider1Wait(d), spinWait(d)
-	// turn (all four arms clamped), release this arm only (the other pair still holds),
-	// gripper back to vertical, re-clamp.
-	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, sp, slider, sw, a, a, sp, slider, sw)
-}
-
 // parseSeq returns the (servo, state) pairs of a SEQ string in order (delays skipped).
 func parseSeq(seq string) [][2]byte {
 	out := [][2]byte{}
@@ -148,79 +92,6 @@ func parseSeq(seq string) [][2]byte {
 		i += 2
 	}
 	return out
-}
-
-// SeqBatch is one SEQ command (fits the firmware buffer) and the moves it performs.
-type SeqBatch struct {
-	Seq         string
-	Moves       string
-	StartOrient int
-	EndOrient   int
-}
-
-func buildSeqBatches(rm string, orient, d int) []SeqBatch {
-	out := []SeqBatch{}
-	cur := SeqBatch{StartOrient: orient}
-	for i := 0; i < len(rm); i++ {
-		ch := rm[i]
-		part := ""
-		no := orientationAfter(ch, orient)
-		if no != orient {
-			part += rotateCubeSeq(no, d)
-		}
-		part += faceSeq(ch, no, d)
-		if len(cur.Seq)+len(part) > seqBuf && cur.Seq != "" {
-			cur.EndOrient = orient
-			out = append(out, cur)
-			cur = SeqBatch{StartOrient: orient}
-		}
-		cur.Seq += part
-		cur.Moves += string(ch)
-		orient = no
-	}
-	if cur.Seq != "" {
-		cur.EndOrient = orient
-		out = append(out, cur)
-	}
-	return out
-}
-
-type TLEvent struct {
-	At    int    `json:"at"`
-	Dur   int    `json:"dur"`
-	Kind  string `json:"kind"`
-	Move  string `json:"move,omitempty"`
-	Pose  string `json:"pose,omitempty"`
-	Index int    `json:"index"`
-	fired bool
-	timer *time.Timer
-}
-
-func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
-	t := 100
-	ev := []*TLEvent{}
-	for i := 0; i < len(rm); i++ {
-		ch := rm[i]
-		no := orientationAfter(ch, orient)
-		if no != orient {
-			p := "NORMAL"
-			if no == INVERT {
-				p = "INVERT"
-			}
-			sw, pw := sliderWait(d), pairWait(d)
-			ev = append(ev, &TLEvent{At: t + 3*sw + pw, Dur: pw, Kind: "pose", Pose: p})
-			t += 5*sw + 2*pw
-			orient = no
-		}
-		f := string(unicode.ToUpper(rune(ch)))
-		mv := f
-		if unicode.IsLower(rune(ch)) {
-			mv = f + "'"
-		}
-		ev = append(ev, &TLEvent{At: t, Dur: spinWait(d), Kind: "move", Move: mv})
-		t += 2*spinWait(d) + 2*slider1Wait(d)
-	}
-	return ev, orient, t
 }
 
 func chunkMoves(s string) []string {
@@ -478,8 +349,9 @@ func (s *Simulator) receive(line string) {
 		if len(mv) > 63 {
 			mv = mv[:63]
 		}
-		_, _, total := buildTimeline(mv, o, d)
-		s.run(total)
+		_ = o
+		_, total := timeline(nil, d)
+		s.run(total + 1000*len(mv))
 	default:
 		s.later("ERR cmd: "+parts[0], 10*time.Millisecond)
 	}

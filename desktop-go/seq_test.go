@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,15 +11,16 @@ import (
 
 func TestSeqBatches(t *testing.T) {
 	rm := toRobotMoves([]string{"U", "F'", "R2", "D", "B", "L'", "U2", "F", "D'", "R"})
-	bs := buildSeqBatches(rm, NORMAL, 210)
+	bs := buildSeqBatches(rm, NORMAL, 210, true)
 	all := ""
+	end := -1
 	for _, b := range bs {
 		if len("SEQ "+b.Seq) > 254 {
 			t.Fatalf("too long: %d", len("SEQ "+b.Seq))
 		}
 		all += b.Moves
 		// timing of the SEQ must match the animation timeline
-		_, _, total := buildTimeline(b.Moves, b.StartOrient, 210)
+		_, total := timeline(b.Steps, 210)
 		sum := 100
 		for _, m := range regexp.MustCompile(`\d+`).FindAllString(b.Seq, -1) {
 			n, _ := strconv.Atoi(m)
@@ -27,13 +29,67 @@ func TestSeqBatches(t *testing.T) {
 		if sum != total {
 			t.Fatalf("timing mismatch seq=%d timeline=%d", sum, total)
 		}
+		end = b.EndOrient
 	}
 	if all != rm {
 		t.Fatalf("moves lost: %s vs %s", all, rm)
 	}
+	if end != homeOrient {
+		t.Fatalf("not back home: %d", end)
+	}
 	t.Logf("%d batches; first: SEQ %s", len(bs), bs[0].Seq)
-	t.Logf("face U at INVERT: %s", faceSeq('U', INVERT, 210))
-	t.Logf("face f: %s", faceSeq('f', NORMAL, 210))
+}
+
+// The planner uses all 24 orientations and both roll types: a move list that the old
+// two-pose scheme had to flip for every U/D <-> L/R change needs far fewer rolls.
+func TestPlannerRolls(t *testing.T) {
+	if len(orients) != 24 {
+		t.Fatalf("%d orientations", len(orients))
+	}
+	rm := toRobotMoves([]string{"U", "R", "U'", "R'", "U", "R", "U'", "R'"})
+	steps, end, _ := planRobot(rm, homeOrient, true, 300)
+	if n := countRolls(steps); n > 2 || end != homeOrient {
+		t.Fatalf("U R U' R' x2 needs %d rolls (end %d)", n, end)
+	}
+	// F/B/L/R only: no roll at all
+	steps, _, _ = planRobot(toRobotMoves([]string{"F", "R", "B'", "L2"}), homeOrient, true, 300)
+	if countRolls(steps) != 0 {
+		t.Fatalf("rolls for arm faces only")
+	}
+	// every turn is on a face that points at an arm
+	r := rand.New(rand.NewSource(5))
+	for n := 0; n < 200; n++ {
+		mv := randomScramble(25, r)
+		steps, end, _ := planRobot(toRobotMoves(mv), homeOrient, true, 300)
+		if end != homeOrient {
+			t.Fatal("not home")
+		}
+		for _, s := range steps {
+			if s.Roll == "" && (s.Arm == 0 || armFor(s.Orient, s.Move) != s.Arm) {
+				t.Fatalf("bad arm for %c", s.Move)
+			}
+		}
+	}
+}
+
+func TestSolveForRobot(t *testing.T) {
+	tb := NewTables()
+	r := rand.New(rand.NewSource(11))
+	totalRolls, totalMoves := 0, 0
+	for n := 0; n < 5; n++ {
+		colors := applyMoves(solvedColors('R', 'W'), randomScramble(25, r))
+		ch, err := solveForRobot(tb, colors, 700*time.Millisecond, homeOrient, true, 300)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if applyMoves(colors, ch.Moves) != solvedColors('R', 'W') {
+			t.Fatalf("does not solve: %v", ch.Moves)
+		}
+		totalRolls += ch.Rolls
+		totalMoves += len(ch.Moves)
+		t.Logf("%d moves (shortest %d), %d rolls, %.1f s, from %d candidates", len(ch.Moves), ch.Shortest, ch.Rolls, float64(ch.Ms)/1000, ch.Tried)
+	}
+	t.Logf("average %.1f moves, %.1f rolls", float64(totalMoves)/5, float64(totalRolls)/5)
 }
 
 func TestSoftenHolds(t *testing.T) {
@@ -80,7 +136,7 @@ func TestGlideStockFirmware(t *testing.T) {
 }
 
 func TestHardGrip(t *testing.T) {
-	in := rotateCubeSeq(INVERT, 210)
+	in := rollSeq("z'", 210)
 	if !strings.Contains(in, "FHBH") {
 		t.Fatalf("flip does not clamp hard: %s", in)
 	}

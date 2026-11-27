@@ -508,6 +508,9 @@ type Solver struct {
 	path      []int
 	p2path    []int
 	stop      bool
+	slack     int // also keep solutions up to this many moves longer than the shortest
+	maxSols   int
+	shortest  int
 }
 
 func (t *Tables) h1(tw, fl, sl int) uint8 {
@@ -520,6 +523,12 @@ func (t *Tables) h1(tw, fl, sl int) uint8 {
 }
 
 func Solve(t *Tables, cube string, maxLen int, timeout time.Duration) ([][]string, error) {
+	return SolveMany(t, cube, maxLen, timeout, 0, 1000)
+}
+
+// SolveMany is Solve that also keeps solutions up to slack moves longer than the
+// shortest found (at most maxSols): the robot picks the one that is fastest to perform.
+func SolveMany(t *Tables, cube string, maxLen int, timeout time.Duration, slack, maxSols int) ([][]string, error) {
 	if err := verifyFacelets(cube); err != nil {
 		return nil, err
 	}
@@ -528,7 +537,8 @@ func Solve(t *Tables, cube string, maxLen int, timeout time.Duration) ([][]strin
 		return [][]string{{}}, nil
 	}
 	cc, _ := faceletsToCubie(cube)
-	s := &Solver{t: t, cc: cc, deadline: time.Now().Add(timeout), best: maxLen + 1}
+	s := &Solver{t: t, cc: cc, deadline: time.Now().Add(timeout), best: maxLen + 1, slack: slack,
+		maxSols: maxSols, shortest: maxLen + 1}
 	tw, fl, ss, co := cc.twist(), cc.flip(), cc.sliceSorted(), cc.corners()
 	hardStop := time.Now().Add(timeout + 30*time.Second)
 	for togo := int(t.h1(tw, fl, ss/24)); togo <= maxLen; togo++ {
@@ -614,7 +624,16 @@ func (s *Solver) startPhase2(ss, co int) {
 				sol = append(sol, moveNames[m])
 			}
 			s.solutions = append(s.solutions, sol)
-			s.best = len(sol)
+			if len(sol) < s.shortest {
+				s.shortest = len(sol)
+			}
+			s.best = s.shortest + s.slack + 1
+			if s.slack == 0 {
+				s.best = len(sol) // only strictly shorter ones from now on
+			}
+			if len(s.solutions) >= s.maxSols {
+				s.stop = true
+			}
 			return
 		}
 	}

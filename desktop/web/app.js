@@ -213,7 +213,7 @@
     if (document.activeElement !== $("follow-pct")) $("follow-pct").value = S.settings.follow_pct ?? 60;
     if (document.activeElement !== $("sync-ms")) $("sync-ms").value = S.settings.sync_ms || 1000;
     if (document.activeElement !== $("flip-grip")) $("flip-grip").value = S.settings.flip_grip_us ?? 40;
-    $("pose-badge").textContent = S.pose === "INVERT" ? "flipped (U/D on arms)" : "home pose";
+    $("pose-badge").textContent = S.pose ? `rolled (${S.pose})` : "home pose";
     const w = (S.warnings || []).map((x) => `<div class="warn">⚠ ${x}</div>`).join("");
     $("est").innerHTML = (S.solution_info && S.solution_info.robot_string
       ? `Robot moves: <code>${S.solution_info.robot_string}</code> <span class="small">(sent as SEQ, sliders clamp at L)</span>` : "") + w;
@@ -261,7 +261,7 @@
     renderScanSteps();
     renderRobot();
     renderPair();
-    if (first && st.pose === "INVERT") view.setPose(["z'"], 1);
+    if (first && st.pose) view.setPose(st.pose.split(" "), 1);
     if (!running) {
       if (first || st.colors !== prevColors) {
         view.setColors(st.colors);
@@ -345,9 +345,9 @@
           renderNet();
           break;
         case "pose":
-          view.setPose(ev.pose === "INVERT" ? ["z'"] : [], ev.dur * 1.2);
+          view.setPose(ev.pose ? ev.pose.split(" ") : [], ev.dur * 1.2);
           S.pose = ev.pose;
-          $("pose-badge").textContent = ev.pose === "INVERT" ? "flipped (U/D on arms)" : "home pose";
+          $("pose-badge").textContent = ev.pose ? `rolled (${ev.pose})` : "home pose";
           break;
         case "run_done":
           running = false;
