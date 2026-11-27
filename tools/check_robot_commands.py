@@ -5,12 +5,13 @@ The simulated cube is 54 stickers in the robot frame. Servo commands are played 
 group by group (commands between two delays run at the same time):
 
   * a spinner turning while its slider clamps (L or C) and its partner holds still
-    turns that face's LAYER (all four arms must be holding),
+    turns that face's LAYER (all four arms must be holding); 45 deg twists are tracked,
   * two opposite spinners turning mirrored while both clamp and the other pair is
     released (R) ROLL the whole cube (45 deg steps allowed, e.g. scan lifts),
-  * a slider may only clamp square to its face (gripper at 0/+-90 relative to it),
-  * while the cube rolls, the released pair's grippers must be horizontal (+-90) during
-    scanning (the corners of a tilted cube sweep into vertical grippers).
+  * a slider may only clamp square to its face/layer (gripper angle - layer twist = 0/+-90),
+  * no layer may turn while a layer on another axis is twisted (the cube would jam),
+  * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
+    the holding arms are horizontal (R/L) and the top face's layer is twisted 45 deg.
 
 Usage:
   python tools/check_robot_commands.py solve <seqs.json>   # from desktop-go DUMP_SEQ test
@@ -40,6 +41,7 @@ class Robot:
         self.sl = {k: "L" for k in "FBRL"}
         self.sp = {k: 0 for k in "fbrl"}
         self.tilt = {"z": 0, "x": 0}         # partial roll (deg, cw seen from f / r)
+        self.twist = {}                      # partial layer twist by centre colour
         self.err = []
         self.scan_rules = scan_rules
 
@@ -58,7 +60,7 @@ class Robot:
                 if st == "L" and self.sl[s] != "L":
                     arm = s.lower()
                     ang = ANG[spin[arm]] if arm in spin else self.sp[arm]
-                    if not self.square(arm, ang):
+                    if not self.square(arm, ang - self.twist.get(self.c[self.center(arm)], 0)):
                         self.err.append(f"{label}: {s} clamps a non-square face (gripper {ang})")
                 self.sl[s] = st
             done = set()
@@ -72,8 +74,8 @@ class Robot:
                         self.err.append(f"{label}: {k}/{p} do not mirror")
                     if any(self.clamped(o) for o in others):
                         self.err.append(f"{label}: cube rolled by {k} while the other pair clamps")
-                    if self.scan_rules and any(self.sp[o] % 180 == 0 for o in others):
-                        self.err.append(f"{label}: cube rolled while released grippers are vertical")
+                    if self.scan_rules and any(self.sp[o] != 0 for o in others):
+                        self.err.append(f"{label}: cube rolled while released grippers are not vertical")
                     self.roll(k, d)
                     done |= {k, p}
                 else:                               # layer turn
@@ -81,14 +83,31 @@ class Robot:
                         self.err.append(f"{label}: {k} turns a layer while the cube is not held")
                     if any(self.tilt.values()):
                         self.err.append(f"{label}: layer turn on a tilted cube")
-                    if d % 90:
-                        self.err.append(f"{label}: {k} turns its layer by {d} deg")
-                    q = (d // 90) % 4
-                    for _ in range(q):
-                        self.c = cube.apply_move(self.c, FACE[k])
+                    col = self.c[self.center(k)]
+                    axis_k = "z" if k in "fb" else "x"
+                    for other, a in self.twist.items():
+                        if a and other != col and self.axis_of(other) not in (axis_k, None) \
+                                and self.axis_of(other) != axis_k:
+                            self.err.append(f"{label}: {k} turns a layer while another axis is twisted")
+                    t = self.twist.get(col, 0) + d
+                    while t >= 90:
+                        self.c = cube.apply_move(self.c, FACE[k]); t -= 90
+                    while t <= -90:
+                        self.c = cube.apply_move(self.c, FACE[k] + "'"); t += 90
+                    self.twist[col] = t
+                    if t % 45:
+                        self.err.append(f"{label}: {k} leaves its layer at {t} deg")
                     done.add(k)
             for k, v in spin.items():
                 self.sp[k] = ANG[v]
+
+    def center(self, arm):
+        return 9 * cube.FACES.index(FACE[arm]) + 4
+
+    def axis_of(self, col):
+        """world axis ('z' f/b, 'x' r/l, 'y' u/d) of the layer whose centre has this colour"""
+        i = [self.c[9 * j + 4] for j in range(6)].index(col)
+        return {"F": "z", "B": "z", "R": "x", "L": "x", "U": "y", "D": "y"}[cube.FACES[i]]
 
     def square(self, arm, ang):
         ax = "z" if arm in "fb" else "x"
@@ -107,6 +126,18 @@ class Robot:
             step = 90 if self.tilt[ax] > 0 else -90
             self.c = cube.apply_move(self.c, ROLL[base] if step > 0 else ROLL[base] + "'")
             self.tilt[ax] -= step
+
+    def scan_pose(self, label):
+        """top face's layer twisted 45 deg; holders horizontal, released arms vertical"""
+        top = self.c[4]
+        if self.twist.get(top, 0) % 90 != 45:
+            self.err.append(f"{label}: top face is not twisted 45 deg towards the front")
+        for a in "fbrl":
+            if self.clamped(a) and abs(self.sp[a]) != 90:
+                self.err.append(f"{label}: holding arm {a} not horizontal ({self.sp[a]})")
+            if not self.clamped(a) and self.sp[a] != 0:
+                self.err.append(f"{label}: released arm {a} not vertical ({self.sp[a]})")
+        return top
 
     def camera_face_color(self):
         """Centre colour of the face the camera at the robot front (+x+z, raised) sees best."""
@@ -152,9 +183,9 @@ def check_scan(path, front="R", top="W"):
     seen = []
     for st in plan:
         rob.run(st["present"].replace("{d}", "200"), st["id"] + " present")
-        seen.append(rob.camera_face_color())
+        seen.append(rob.scan_pose(st["id"] + " scan pose"))
         rob.run(st["revert"].replace("{d}", "200"), st["id"] + " revert")
-    ok_home = rob.c == home and not any(rob.tilt.values())
+    ok_home = rob.c == home and not any(rob.tilt.values()) and not any(rob.twist.values())
     print("scan: camera sees", " -> ".join(cube.COLOR_NAMES[c] for c in seen),
           "| back home:", ok_home, "| final grippers", rob.sp, "sliders", rob.sl)
     print("\n".join(rob.err) if rob.err else "scan: no rule violations")

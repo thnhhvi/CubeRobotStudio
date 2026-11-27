@@ -19,8 +19,8 @@ const (
 	INVERT   = 1
 	moveBuf  = 60
 	seqBuf   = 250
-	openSeq  = "RRLRFRBR" // all sliders R: released, cube can be taken out
-	closeSeq = "RLLLFLBL" // all sliders L: clamped
+	openSeq  = "RRLRFRBR"    // all sliders R: released, cube can be taken out
+	closeSeq = "FLBL500RLLL" // front + back clamp (L), 500 ms, then right + left
 )
 
 func toRobotMoves(moves []string) string {
@@ -100,66 +100,6 @@ func parseSeq(seq string) [][2]byte {
 		i += 2
 	}
 	return out
-}
-
-// slider path from open to clamped; r / l are the firmware's half-way positions
-const sliderPath = "RrClL"
-
-// closeSequence clamps the cube gently: the front and back sliders step to L at the
-// given speed, then a pause, then the right and left sliders do the same. Each
-// slider starts from its current position (never opens first).
-func closeSequence(state map[byte]byte, d, speedPct, pauseMs int) string {
-	if speedPct < 10 {
-		speedPct = 10
-	}
-	if speedPct > 100 {
-		speedPct = 100
-	}
-	// full-speed travel R->L takes one servo delay; at speedPct it takes d*100/speedPct,
-	// split over the 4 segments of the path
-	step := (d*100/speedPct + 2) / 4
-	if step < 20 {
-		step = 20
-	}
-	var b strings.Builder
-	group := func(servos string) bool {
-		start := map[byte]int{}
-		moved := false
-		for i := 0; i < len(servos); i++ {
-			idx := strings.IndexByte(sliderPath, state[servos[i]])
-			if idx < 0 {
-				idx = 0 // unknown: treat as open
-			}
-			start[servos[i]] = idx
-		}
-		for k := 1; k < len(sliderPath); k++ {
-			stepped := false
-			for i := 0; i < len(servos); i++ {
-				if start[servos[i]] < k {
-					b.WriteByte(servos[i])
-					b.WriteByte(sliderPath[k])
-					stepped = true
-				}
-			}
-			if stepped {
-				moved = true
-				if k < len(sliderPath)-1 {
-					b.WriteString(strconv.Itoa(step))
-				}
-			}
-		}
-		return moved
-	}
-	if group("FB") {
-		b.WriteString(strconv.Itoa(step + pauseMs))
-	}
-	group("RL")
-	s := b.String()
-	if s == "" {
-		s = "FLBLRLLL" // already clamped: re-assert
-	}
-	// a SEQ must not end with a delay
-	return strings.TrimRight(s, "0123456789")
 }
 
 // SeqBatch is one SEQ command (fits the firmware buffer) and the moves it performs.

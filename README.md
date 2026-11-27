@@ -35,10 +35,7 @@ Get both files from the latest release on the **Releases** tab. Every push to `m
 Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°, l −45°, C 0°, r +45°, R +90°.
 
 * **Open:** all sliders to R.
-* **Close:** front and back sliders step to L through the half-way positions (R → r → C → l → L) at
-  **80 % speed**, then a **500 ms** pause, then right and left the same way. Both numbers are in the Robot
-  panel. Each slider starts from its current position, which the app tracks and asks the Arduino for
-  (`STATUS F/B/R/L`).
+* **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
 * **Solve / Scramble:** the firmware's `MOVE` command always leaves the sliders at C, so the app sends the
   same servo steps itself as `SEQ` commands, with every hold at **L**. A command never exceeds 250
   characters (firmware buffer: 256). After a U/D move the cube is flipped, and at the end the robot flips
@@ -50,10 +47,11 @@ Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°
 
 1. Choose the colour in the **front arm** and on **top**. The net, the 3D model and the scan order follow.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
-3. For each face, the robot first changes axis. The pair that will lift clamps; the other pair releases,
-   turns its grippers **horizontal** and clamps again. The lifting pair re-grips at its start angle, the
-   horizontal pair releases, and the face is lifted, tilted 45° towards the robot front. Horizontal
-   grippers keep the corners of the turning cube from hitting the released arms.
+3. For each face, all four arms clamp. The arm holding the face **twists its layer 45°**, lets go and turns
+   its gripper back to **vertical (C)**. The holding pair then rolls the cube 90°, so the face comes up on
+   top with its layer twisted 45°, pointing straight at the robot front. The holders end **horizontal
+   (R/L)** and the released arms stay **vertical (C)**. After Confirm the cube rolls back, the same arm
+   re-grips the twisted layer and untwists it.
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
 5. Order for red front / white top: green, yellow, blue, white (front/back arms lift), then red, orange
@@ -68,8 +66,8 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 ## Checking the robot commands
 
 `tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
-clamping only square to a face. It also requires the released grippers to be horizontal while the cube
-turns during scanning.
+clamping only square to a face or a twisted layer. For scanning it also checks that the holders are
+horizontal and the released arms vertical, and that the face on top is twisted 45°.
 
 ```
 cd desktop-go && cp -r ../desktop/web web && DUMP_SEQ=/tmp/seqs.json go test -run TestDumpSolveSeqs .

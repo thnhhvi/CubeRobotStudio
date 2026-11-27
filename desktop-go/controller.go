@@ -25,8 +25,6 @@ type Settings struct {
 	ScanDelayMin    int     `json:"scan_delay_min"`
 	SolveTimeout    float64 `json:"solve_timeout"`
 	ReturnHome      bool    `json:"return_home"`
-	CloseSpeedPct   int     `json:"close_speed_pct"`
-	ClosePauseMs    int     `json:"close_pause_ms"`
 }
 
 // ---------------------------------------------------------------- bus
@@ -111,14 +109,11 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, CloseSpeedPct: 80, ClosePauseMs: 500},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
-	}
-	if c.settings.CloseSpeedPct == 0 {
-		c.settings.CloseSpeedPct, c.settings.ClosePauseMs = 80, 500
 	}
 	if _, err := centerColors(c.settings.Front[0], c.settings.Top[0]); err != nil {
 		c.settings.Front, c.settings.Top = "R", "W"
@@ -299,21 +294,12 @@ func (c *Controller) OpenArms() error {
 	return c.startTask("open", func() error { return c.rq.Run("SEQ " + openSeq) })
 }
 
-// CloseArms clamps the cube: front/back sliders first at CloseSpeedPct, a pause of
-// ClosePauseMs, then right/left - each slider from wherever it is now.
+// CloseArms clamps the cube: front and back sliders to L, 500 ms, then right and left.
 func (c *Controller) CloseArms() error {
 	if err := c.requireRobot(); err != nil {
 		return err
 	}
-	return c.startTask("close", func() error {
-		st := c.rq.SliderStates()
-		if len(st) < 4 && c.rq.GetState() == "IDLE" {
-			c.rq.QuerySliders() // positions unknown (e.g. after Abort): ask the Arduino
-			st = c.rq.SliderStates()
-		}
-		seq := closeSequence(st, c.cfg().Delay, c.cfg().CloseSpeedPct, c.cfg().ClosePauseMs)
-		return c.rq.Run("SEQ " + seq)
-	})
+	return c.startTask("close", func() error { return c.rq.Run("SEQ " + closeSeq) })
 }
 
 func (c *Controller) Abort() {
@@ -402,22 +388,6 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.SolveTimeout = toFloat(v)
 		case "return_home":
 			s.ReturnHome, _ = v.(bool)
-		case "close_speed_pct":
-			s.CloseSpeedPct = int(toFloat(v))
-			if s.CloseSpeedPct < 10 {
-				s.CloseSpeedPct = 10
-			}
-			if s.CloseSpeedPct > 100 {
-				s.CloseSpeedPct = 100
-			}
-		case "close_pause_ms":
-			s.ClosePauseMs = int(toFloat(v))
-			if s.ClosePauseMs < 0 {
-				s.ClosePauseMs = 0
-			}
-			if s.ClosePauseMs > 5000 {
-				s.ClosePauseMs = 5000
-			}
 		}
 	}
 	if changed {

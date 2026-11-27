@@ -29,33 +29,33 @@ type ScanPlan struct {
 }
 
 func defaultPlan() ScanPlan {
-	// Sliders: L = clamped, R = released. Spinner angles: L -90, l -45, C 0, r +45, R +90.
-	// A gripper can only clamp square to a face (C or +-90). While the cube turns about one
-	// axis, the released pair's grippers are turned HORIZONTAL (+-90, prongs along the turn
-	// axis) so the corners of the turning cube cannot hit them. Before each lift the robot
-	// changes axis: the lifting pair clamps, the other pair releases, turns horizontal and
-	// clamps again; then the lifting pair re-grips at its start angle, the other pair
-	// releases, and the face is lifted 45 deg towards the robot front for the camera.
+	// Sliders: L = clamped, R = released. Spinners: L -90, l -45, C 0 (vertical), r +45, R +90.
+	// Each face: the arm holding it twists its LAYER 45 deg (all four arms clamped), lets go
+	// and turns its gripper back to vertical; the holding pair rolls the cube 90 deg so the
+	// face comes up with its layer twisted 45 deg - squarely facing the robot front. The
+	// holders end HORIZONTAL (R / L), the released arms stay VERTICAL (C).
+	// Revert: roll back, the same arm re-grips the twisted layer and untwists it.
 	a := func(id string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			// right/left grippers horizontal; front/back re-grip at -90; lift 135 deg (L -> r)
-			Present: "FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}fLbR{d}FLBL{d}RRLR{d}frbl{d}",
-			// back 45 deg: cube square again (net 90 deg); right/left clamp (still horizontal)
-			Revert: "fCfCbCbC{d}RLLL{d}",
-			View:   []string{"z"}, Keep: []string{"z"}}
+			// left arm twists its layer, frees itself; front/back roll the face to the top
+			Present: "lr{d}LR{d}lClCRR{d}fRbL{d}",
+			// roll back, left re-grips + untwists, then roll on: next face to the left arm
+			Revert: "fCfCbCbC{d}lr{d}LLRL{d}lC{d}LR{d}lClC{d}LL{d}" +
+				"FRBR{d}fLbR{d}FLBL{d}RRLR{d}fCfCbCbC{d}RLLL{d}",
+			View: []string{"z"}, Keep: []string{"z"}}
 	}
-	return ScanPlan{CameraFace: "U", Version: 3, Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 4, Steps: []ScanStep{
 		a("A1"), a("A2"), a("A3"), a("A4"),
-		// front/back grippers horizontal; right/left re-grip at -90; lift 45 deg (L -> l): red up
+		// front arm twists red's layer; right/left roll it to the top (F -> U)
 		{ID: "B1", Axis: "left/right",
-			Present: "RLLLFRBR{d}fRbL{d}FLBL{d}RRLR{d}rLlR{d}RLLL{d}FRBR{d}rllr{d}",
-			Revert:  "rLlR{d}FLBL{d}", View: []string{"x"}, Keep: []string{}},
-		// right/left re-grip at +90; lift 135 deg the other way (R -> l): orange up
+			Present: "fr{d}FR{d}fCfCBR{d}rRlL{d}",
+			Revert:  "rCrClClC{d}fr{d}FLBL{d}fC{d}FR{d}fCfC{d}FL{d}",
+			View:    []string{"x"}, Keep: []string{}},
+		// back arm twists orange's layer; right/left roll it to the top (B -> U)
 		{ID: "B2", Axis: "left/right",
-			Present: "RLLLFRBR{d}fRbL{d}FLBL{d}RRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}",
-			// back to home, then every gripper back to vertical (C) and clamped for solving
-			Revert: "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}FRBR{d}fCfCbCbC{d}FLBL{d}",
-			View:   []string{"x'"}, Keep: []string{}},
+			Present: "br{d}BR{d}bCbCFR{d}rLlR{d}",
+			Revert:  "rCrClClC{d}br{d}BLFL{d}bC{d}BR{d}bCbC{d}BL{d}",
+			View:    []string{"x'"}, Keep: []string{}},
 	}}
 }
 
@@ -74,7 +74,7 @@ var oldDefaults = map[string]bool{
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 3 {
+	if p.Version >= 4 {
 		return p
 	}
 	def := map[string]ScanStep{}
@@ -88,7 +88,7 @@ func upgradePlan(p ScanPlan) ScanPlan {
 			p.Steps[i] = d
 		}
 	}
-	p.Version = 3
+	p.Version = 4
 	return p
 }
 
