@@ -59,7 +59,21 @@ type winSerial struct {
 	io     sync.Mutex
 }
 
+// openSerial opens the port; a USB-serial chip that just reset (servo power dip, cable)
+// can refuse the settings for a moment, so it is tried a few times.
 func openSerial(port string, baud int) (*winSerial, error) {
+	var err error
+	for try := 0; try < 4; try++ {
+		var s *winSerial
+		if s, err = openSerialOnce(port, baud); err == nil {
+			return s, nil
+		}
+		time.Sleep(800 * time.Millisecond)
+	}
+	return nil, err
+}
+
+func openSerialOnce(port string, baud int) (*winSerial, error) {
 	path, _ := syscall.UTF16PtrFromString(`\\.\` + port)
 	h, err := syscall.CreateFile(path, syscall.GENERIC_READ|syscall.GENERIC_WRITE, 0, nil,
 		syscall.OPEN_EXISTING, 0, 0)
@@ -70,7 +84,7 @@ func openSerial(port string, baud int) (*winSerial, error) {
 	d.DCBlength = uint32(unsafe.Sizeof(d))
 	if r, _, e := procGetCommState.Call(uintptr(h), uintptr(unsafe.Pointer(&d))); r == 0 {
 		syscall.CloseHandle(h)
-		return nil, fmt.Errorf("GetCommState: %v", e)
+		return nil, errors.New(friendlySerialError(port, e))
 	}
 	d.BaudRate = uint32(baud)
 	d.Flags = 1 | (1 << 4) | (1 << 12) // fBinary, DTR enable, RTS enable
@@ -79,7 +93,7 @@ func openSerial(port string, baud int) (*winSerial, error) {
 	d.StopBits = 0
 	if r, _, e := procSetCommState.Call(uintptr(h), uintptr(unsafe.Pointer(&d))); r == 0 {
 		syscall.CloseHandle(h)
-		return nil, fmt.Errorf("SetCommState: %v", e)
+		return nil, errors.New(friendlySerialError(port, e))
 	}
 	t := commTimeouts{0xFFFFFFFF, 0xFFFFFFFF, 20, 0, 1000}
 	procSetCommTimeouts.Call(uintptr(h), uintptr(unsafe.Pointer(&t)))
@@ -254,8 +268,10 @@ func friendlySerialError(port string, err error) string {
 				"(they must run from the external 5 V supply, not USB), or a loose cable."
 		case 5: // ACCESS_DENIED
 			return port + " is in use by another program (Arduino IDE Serial Monitor?)."
-		case 31, 22: // GEN_FAILURE, BAD_COMMAND
-			return port + " stopped responding (USB reset). Reconnecting…"
+		case 31, 22: // GEN_FAILURE ("A device attached to the system is not functioning"), BAD_COMMAND
+			return port + " is not responding: the Arduino's USB chip has hung, usually after the servos " +
+				"pulled its 5 V down. Unplug the Arduino's USB cable, plug it back in, then Connect again " +
+				"(power the servos from a separate 5-6 V supply to stop it happening)."
 		}
 	}
 	return port + ": " + err.Error()
