@@ -49,20 +49,22 @@ Slider states: **H = clamped a little harder than L** (only while the cube is fl
 Safety rules for every command the app sends (solve, scramble, scan):
 
 * **One type at a time.** A step moves sliders or spinners, never both, and the next step only starts
-  when this one is done: at least **400 ms** after sliders, **300 ms** after one spinner and **600 ms**
-  after two spinners turning together (or the speed setting, if slower).
+  when this one is done: at least **400 ms** after one slider, **600 ms** after two or more sliders,
+  **300 ms** after one spinner and **600 ms** after two spinners turning together (or the speed setting,
+  if slower).
 * **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
-* **Spinners in sync.** Two spinners turning together (cube flips and scan rolls) are one 90° step. With the
-  firmware in `arduino/Arduino` (release: `CubeRobotFirmware.zip`) they glide along one smooth, timed path
-  over 70% of the step and settle in the rest, so neither runs ahead and turns a single face. The stock
+* **Paired servos in sync.** Two spinners turning together (cube flips and scan rolls) are one 90° step, and
+  so are two or more sliders moving together (clamp/release of a pair, Open, Close). With the firmware in
+  `arduino/Arduino` (release: `CubeRobotFirmware.zip`) they glide along one smooth, timed path over 70% of
+  the step and settle in the rest, so neither runs ahead (no single face turned, no cube pushed off centre). The stock
   firmware jumps at full servo speed; the app then shows "stock firmware (spinners not synced)".
 * **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H, and eases
   back to L once the other pair holds again.
 
 * **Open:** all sliders to R.
-* **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
+* **Close:** front and back sliders to L, then right and left to L (`SEQ FLBL600RLLL600`).
 * **Solve / Scramble:** the firmware's `MOVE` command always leaves the sliders at C, so the app sends the
   same servo steps itself as `SEQ` commands, with every hold at **L**. A command never exceeds 250
   characters (firmware buffer: 256). After a U/D move the cube is flipped, and at the end the robot flips

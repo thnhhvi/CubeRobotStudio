@@ -18,9 +18,10 @@
 2. **Synced spinners (`GLIDE` command).** With the stock firmware every servo jumps to its new position
    at full speed. When two spinners turn together to roll the cube, one of them is always a bit faster,
    and on a light speed cube that is enough to turn one face instead of the whole cube. With `GLIDE 1`
-   (the app sends it on Connect), spinners commanded in the same step move along one timed, smooth path
-   over 70% of the delay that follows the step (the rest lets them settle), so they stay in sync. Sliders
-   and single spinner moves are unchanged.
+   (the app sends it on Connect), spinners commanded in the same step - and sliders commanded in the same
+   step - move along one timed, smooth path
+   over 70% of the delay that follows the step (the rest lets them settle), so they stay in sync. A single servo in a step
+   moves as before.
 
 3. **Hard grip (`H` state, `GRIP` command).** `H` clamps a slider `HARD_GRIP_US` (default 40 µs, about 4°)
    further than its L position. The app uses it for the pair carrying the cube while flipping it and sets

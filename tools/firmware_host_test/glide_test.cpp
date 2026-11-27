@@ -25,11 +25,12 @@ int main() {
     seqManager.glide = true;
     // pre-turn, roll back to true centre (one 90 deg glide each), a single face turn (no
     // glide), then the hard grip used while flipping
-    seqManager.startSequence("fLbR600fCfCbCbC600rR300FHRH300");
+    seqManager.startSequence("fLbR600fCfCbCbC600rR300FHRH600");
     double worst = 0;
     int fFrom = 1600, bFrom = 1550, fTo = 550, bTo = 2500;
     int lastF = fFrom;
-    for (NOW = 0; NOW <= 2000; NOW++) {
+    bool slidersGlided = false;
+    for (NOW = 0; NOW <= 2400; NOW++) {
         updateAllServos();
         seqManager.tick();
         int f = servos[FRONT_SPINNER].pulseWidth(), b = servos[BACK_SPINNER].pulseWidth();
@@ -37,6 +38,11 @@ int main() {
             worst = fmax(worst, fabs(progress(f, fFrom, fTo) - progress(b, bFrom, bTo)));
             if (f > lastF) { printf("FAIL: glide turns back (hesitates) at %lu ms\n", NOW); return 1; }
             lastF = f;
+        }
+        if (NOW == 1700) { // sliders F and R half way through their paired glide
+            int F = servos[FRONT_SLIDER].pulseWidth(), R = servos[RIGHT_SLIDER].pulseWidth();
+            double pf = progress(F, 1850, 650 - 40), pr = progress(R, 1250, 2505 + 40);
+            slidersGlided = pf > 0.05 && pf < 0.95 && fabs(pf - pr) < 0.03;
         }
         if (NOW == 400 && (f == fFrom || f == fTo)) { printf("FAIL: no glide (f=%d at 400 ms)\n", f); return 1; }
         // glide ends at 70% of the delay: settled well before the next step (at 700 ms)
@@ -51,6 +57,7 @@ int main() {
         printf("FAIL: hard grip H (F=%d R=%d)\n", servos[FRONT_SLIDER].pulseWidth(), servos[RIGHT_SLIDER].pulseWidth());
         return 1;
     }
+    if (!slidersGlided) { printf("FAIL: paired sliders do not glide together\n"); return 1; }
     printf("firmware glide: paired spinners stay within %.1f%% of each other\n", worst * 100);
     return 0;
 }

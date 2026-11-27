@@ -12,7 +12,8 @@ group by group (commands between two delays run at the same time):
   * no layer may turn while a layer on another axis is twisted (the cube would jam),
   * a group moves sliders OR spinners, never both, and never clamps one slider while
     releasing another; the next group only starts when this one is done: >= 400 ms after
-    sliders, >= 300 ms after one spinner, >= 600 ms after two spinners turning together,
+    one slider, >= 600 ms after two or more sliders, >= 300 ms after one spinner and
+    >= 600 ms after two spinners turning together (paired servos glide in sync),
   * H = slider clamped harder than L (used while the cube is flipped),
   * after every group at least one opposite pair (F+B or R+L) holds the cube (L or C),
   * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
@@ -68,8 +69,9 @@ class Robot:
             frees = [k for k, v in slide.items() if depth[v] < depth[self.sl[k]]]
             if clamps and frees:
                 self.err.append(f"{label}: group '{grp}' clamps {clamps} and releases {frees} at once")
-            if slide and wait is not None and wait < 400:
-                self.err.append(f"{label}: only {wait} ms after slider group '{grp}'")
+            need_sl = 600 if len(slide) > 1 else 400
+            if slide and wait is not None and wait < need_sl:
+                self.err.append(f"{label}: only {wait} ms after slider group '{grp}' (needs {need_sl})")
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
             moved = {k: ANG[v] - self.sp[k] for k, v in spin.items() if ANG[v] != self.sp[k]}
@@ -205,7 +207,7 @@ def check_solve(path):
 
 
 def fill(seq):
-    return seq.replace("{d}", "300").replace("{s}", "400").replace("{p}", "600")
+    return seq.replace("{d}", "300").replace("{s}", "600").replace("{p}", "600")
 
 
 def check_scan(path, front="R", top="W"):

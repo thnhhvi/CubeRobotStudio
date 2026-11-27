@@ -109,28 +109,39 @@ int SequenceManager::executeUntilDelay()
 
 int SequenceManager::handleSequence()
 {
-    // Paired spinners in this step glide over 70% of the following delay (the rest lets the
-    // servos settle before the next step starts)
-    unsigned int glideMs = 0;
+    // Two or more spinners (or two or more sliders) in this step glide together over 70%
+    // of the following delay (the rest lets the servos settle before the next step)
+    unsigned int spinGlide = 0, slideGlide = 0;
     if (glide)
     {
         int i = sequenceIndex;
-        int mask = 0, spinners = 0;
+        int mask = 0, spinners = 0, sliders = 0;
         while (activeSequence[i] != '\0' && !isdigit(activeSequence[i]))
         {
             char c = activeSequence[i];
-            int bit = (c == 'f') ? 1 : (c == 'b') ? 2 : (c == 'r') ? 4 : (c == 'l') ? 8 : 0;
+            int bit = 0;
+            switch (c)
+            {
+                case 'f': bit = 1; break;   case 'b': bit = 2; break;
+                case 'r': bit = 4; break;   case 'l': bit = 8; break;
+                case 'F': bit = 16; break;  case 'B': bit = 32; break;
+                case 'R': bit = 64; break;  case 'L': bit = 128; break;
+            }
             if (bit && !(mask & bit))
             {
                 mask |= bit;
-                spinners++;
+                if (bit < 16) spinners++; else sliders++;
             }
             if (activeSequence[i + 1] == '\0')
                 break;
             i += 2;
         }
-        if (spinners >= 2 && isdigit(activeSequence[i]))
-            glideMs = (unsigned int)(strtoul(&activeSequence[i], NULL, 10) * 70UL / 100UL);
+        if (isdigit(activeSequence[i]))
+        {
+            unsigned int g = (unsigned int)(strtoul(&activeSequence[i], NULL, 10) * 70UL / 100UL);
+            if (spinners >= 2) spinGlide = g;
+            if (sliders >= 2) slideGlide = g;
+        }
     }
 
     // Execute until we hit a delay or end of sequence
@@ -159,8 +170,8 @@ int SequenceManager::handleSequence()
         }
         sequenceIndex++;
 
-        // Execute move immediately (paired spinners: glide)
-        servos[servoType].setState(state, (servoType % 2 == 0) ? glideMs : 0);
+        // Execute move immediately (paired servos: glide)
+        servos[servoType].setState(state, (servoType % 2 == 0) ? spinGlide : slideGlide);
     }
 
     // ---- End of sequence ----

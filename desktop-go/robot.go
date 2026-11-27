@@ -19,8 +19,8 @@ const (
 	INVERT   = 1
 	moveBuf  = 60
 	seqBuf   = 250
-	openSeq  = "RRLRFRBR"    // all sliders R: released, cube can be taken out
-	closeSeq = "FLBL500RLLL" // front + back clamp (L), 500 ms, then right + left
+	openSeq  = "RRLRFRBR600"    // all sliders R: released, cube can be taken out (glide together)
+	closeSeq = "FLBL600RLLL600" // front + back clamp (L), then right + left (each pair glides)
 )
 
 func toRobotMoves(moves []string) string {
@@ -66,12 +66,13 @@ func rotateCubeSeq(o, d int) string {
 }
 
 // Minimum times (ms) so a step has really finished before the next one starts, even
-// at the fastest speed setting: a 90 deg spinner turn, a slider stroke, and a paired
-// spinner move (two spinners together; the GLIDE firmware moves them along one timed
-// path over 70% of it, the rest lets them settle).
-func spinWait(d int) int   { return maxInt(d, 300) }
-func sliderWait(d int) int { return maxInt(d, 400) }
-func pairWait(d int) int   { return maxInt(2*d, 600) }
+// at the fastest speed setting: a 90 deg spinner turn, one slider stroke, and paired
+// moves (two spinners or two sliders together: the GLIDE firmware moves them along one
+// timed path over 70% of the step, the rest lets them settle).
+func spinWait(d int) int    { return maxInt(d, 300) }
+func slider1Wait(d int) int { return maxInt(d, 400) }
+func sliderWait(d int) int  { return maxInt(d, 600) } // two or more sliders
+func pairWait(d int) int    { return maxInt(2*d, 600) }
 
 func maxInt(a, b int) int {
 	if a > b {
@@ -102,7 +103,7 @@ func faceSeq(ch byte, orient, d int) string {
 	}
 	slider := string(unicode.ToUpper(rune(arm)))
 	a := string(arm)
-	sw, sp := sliderWait(d), spinWait(d)
+	sw, sp := slider1Wait(d), spinWait(d)
 	// turn (all four arms clamped), release this arm only (the other pair still holds),
 	// gripper back to vertical, re-clamp.
 	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, sp, slider, sw, a, a, sp, slider, sw)
@@ -192,7 +193,7 @@ func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
 			mv = f + "'"
 		}
 		ev = append(ev, &TLEvent{At: t, Dur: spinWait(d), Kind: "move", Move: mv})
-		t += 2*spinWait(d) + 2*sliderWait(d)
+		t += 2*spinWait(d) + 2*slider1Wait(d)
 	}
 	return ev, orient, t
 }
