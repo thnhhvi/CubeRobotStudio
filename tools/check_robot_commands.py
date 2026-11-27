@@ -12,6 +12,7 @@ group by group (commands between two delays run at the same time):
   * no layer may turn while a layer on another axis is twisted (the cube would jam),
   * a group moves sliders OR spinners, never both, and never clamps one slider while
     releasing another; a slider group must be followed by >= 250 ms before the next group,
+  * spinners turning together move at most 45 deg per group (a waypoint keeps them in sync),
   * after every group at least one opposite pair (F+B or R+L) holds the cube (L or C),
   * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
     nothing is twisted, all grippers are vertical, F/B hold at C and R/L are released (R).
@@ -71,6 +72,9 @@ class Robot:
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
             moved = {k: ANG[v] - self.sp[k] for k, v in spin.items() if ANG[v] != self.sp[k]}
+            if len(moved) > 1 and any(abs(v) > 45 for v in moved.values()):
+                self.err.append(f"{label}: spinners {sorted(moved)} turn together by more than 45 deg "
+                                f"in '{grp}' (no sync waypoint)")
             for s, st in slide.items():
                 if st == "L" and self.sl[s] != "L":
                     arm = s.lower()
@@ -146,15 +150,20 @@ class Robot:
             self.tilt[ax] -= step
 
     def scan_pose(self, label):
-        """face rolled straight up: nothing twisted, grippers vertical, F/B at C, R/L at R"""
+        """face rolled straight up: nothing twisted or tilted; one opposite pair clamped at L,
+        the other pair released at R with its grippers vertical"""
         top = self.c[4]
         if any(self.tilt.values()) or any(a % 90 for a in self.twist.values()):
             self.err.append(f"{label}: cube or a layer is not square")
-        for a in "fbrl":
-            if self.sp[a] != 0:
-                self.err.append(f"{label}: gripper {a} not vertical ({self.sp[a]})")
-        if not (self.sl["F"] == "C" and self.sl["B"] == "C" and self.sl["R"] == "R" and self.sl["L"] == "R"):
-            self.err.append(f"{label}: scan pose sliders {self.sl} (want F/B at C, R/L at R)")
+        pairs = [("F", "B"), ("R", "L")]
+        ok = False
+        for hold, free in (pairs, pairs[::-1]):
+            if all(self.sl[k] == "L" for k in hold) and all(self.sl[k] == "R" for k in free) \
+                    and all(self.sp[k.lower()] == 0 for k in free):
+                ok = True
+        if not ok:
+            self.err.append(f"{label}: scan pose sliders {self.sl} grippers {self.sp} "
+                            "(want one pair at L, the other at R and vertical)")
         return top
 
     def camera_face_color(self):
@@ -194,23 +203,28 @@ def check_solve(path):
     return bad == 0
 
 
+def fill(seq):
+    return seq.replace("{d}", "200").replace("{s}", "250").replace("{h}", "140")
+
+
 def check_scan(path, front="R", top="W"):
     plan = json.load(open(path))
     home = cube.solved_colors(front, top)
     rob = Robot(home, scan_rules=True)
     seen = []
     for st in plan:
-        rob.run(st["present"].replace("{d}", "200").replace("{s}", "250"), st["id"] + " present")
+        rob.run(fill(st["present"]), st["id"] + " present")
         seen.append(rob.scan_pose(st["id"] + " scan pose"))
         if st.get("handoff"):   # second look: side arms hold at C, front/back released
-            rob.run(st["handoff"].replace("{s}", "250"), st["id"] + " hand-off")
-            if rob.sl != {"F": "R", "B": "R", "R": "C", "L": "C"} or any(rob.sp.values()):
-                rob.err.append(f"{st['id']} second look pose {rob.sl} {rob.sp}")
+            before = dict(rob.sl)
+            rob.run(fill(st["handoff"]), st["id"] + " hand-off")
+            if {k: ("R" if v == "L" else "L") for k, v in before.items()} != rob.sl:
+                rob.err.append(f"{st['id']} second look did not swap the holding pair {rob.sl}")
             if rob.c[4] != seen[-1]:
                 rob.err.append(f"{st['id']} hand-off moved the cube")
-            rob.run(st["handback"].replace("{s}", "250"), st["id"] + " hand-back")
+            rob.run(fill(st["handback"]), st["id"] + " hand-back")
             rob.scan_pose(st["id"] + " after hand-back")
-        rob.run(st["revert"].replace("{d}", "200").replace("{s}", "250"), st["id"] + " revert")
+        rob.run(fill(st["revert"]), st["id"] + " revert")
     ok_home = rob.c == home and not any(rob.tilt.values()) and not any(rob.twist.values()) \
         and all(v == "L" for v in rob.sl.values()) and not any(rob.sp.values())
     print("scan: camera sees", " -> ".join(cube.COLOR_NAMES[c] for c in seen),

@@ -50,7 +50,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), Link.Listener {
     companion object {
         const val GRAD = "gradient"
-        const val VERSION = "1.7"
+        const val VERSION = "1.8"
     }
     private var loadedHost: String? = null
 
@@ -502,7 +502,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 captureBtn.isEnabled = true
                 val hint = ev.optString("manual_hint", "")
                 prompt.text = if (ev.optBoolean("second_look", false))
-                    "Second look at the $name face (${promptIndex + 1}/$total): side arms holding, " +
+                    "Second look at the $name face (${promptIndex + 1}/$total): other arms holding, " +
                         "capturing the stickers the grippers hid…"
                 else "Aim at the $name face  (${promptIndex + 1}/$total), then tap Scan face" +
                     if (hint.isNotEmpty() && hint != "null") "\n$hint" else ""

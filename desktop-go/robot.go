@@ -54,15 +54,21 @@ func orientationAfter(ch byte, cur int) int {
 // rotateCubeSeq flips the cube between NORMAL and INVERT (same steps as the
 // firmware's rotateCube) but every slider that holds the cube ends at L (clamped).
 func rotateCubeSeq(o, d int) string {
-	pre := "fLbR"
+	pre, mid := "fLbR", "flbr"
 	if o == INVERT {
-		pre = "fRbL"
+		pre, mid = "fRbL", "frbl"
 	}
-	s := sliderWait(d)
+	s, h := sliderWait(d), halfStep(d)
 	// clamp R/L, then release F/B (never in the same instant: R/L hold the cube),
 	// pre-turn the free F/B grippers, clamp F/B, release R/L, roll, re-clamp R/L.
-	return fmt.Sprintf("RLLL%dFRBR%d%s%dFLBL%dRRLR%dfCfCbCbC%dRLLL%d", s, s, pre, d, s, s, d, s)
+	// Two spinners turning together always pass a 45 deg waypoint, so neither can
+	// run ahead of the other by more than 45 deg (they stay in sync).
+	return fmt.Sprintf("RLLL%dFRBR%d%s%d%s%dFLBL%dRRLR%d%s%dfCfCbCbC%dRLLL%d",
+		s, s, mid, h, pre, h, s, s, mid, h, h, s)
 }
+
+// halfStep is the wait for each 45 deg half of a paired spinner move.
+func halfStep(d int) int { return d/2 + 40 }
 
 // sliderWait is how long a slider group gets before any spinner may move: sliders
 // travel further than a gripper quarter turn, so fast speeds would let a spinner start
@@ -176,8 +182,9 @@ func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
 				p = "INVERT"
 			}
 			sw := sliderWait(d)
-			ev = append(ev, &TLEvent{At: t + 4*sw + d, Dur: d, Kind: "pose", Pose: p})
-			t += 5*sw + 2*d
+			h := halfStep(d)
+			ev = append(ev, &TLEvent{At: t + 4*sw + 2*h, Dur: 2 * h, Kind: "pose", Pose: p})
+			t += 5*sw + 4*h
 			orient = no
 		}
 		f := string(unicode.ToUpper(rune(ch)))

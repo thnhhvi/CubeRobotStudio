@@ -52,6 +52,8 @@ Safety rules for every command the app sends (solve, scramble, scan):
 * **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
+* **Spinners in sync.** When two spinners turn together (cube rolls), each 90° turn is split into two 45°
+  halves, so both grippers pass the same waypoint and neither runs ahead.
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
@@ -66,10 +68,11 @@ Safety rules for every command the app sends (solve, scramble, scan):
 
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
-3. Each face is simply **rolled straight up** to the camera: no layer twist, no grippers turned
-   horizontal. In the scan pose every gripper is vertical, **front and back hold at C** and **left and right
-   wait released at R** until they are needed to turn the cube over (red and orange are rolled up by the
-   left/right arms, then front/back take over at C again). After Confirm front/back clamp, then left/right.
+3. Each face is simply **rolled straight up** to the camera by the pair holding the cube, with no extra
+   gripper turn before it. In the scan pose the rolling pair stays **clamped at L** (its grippers end
+   horizontal) and the other pair waits **released at R** with its grippers vertical. Green, yellow, blue
+   and white are rolled up by front/back, red and orange by left/right. After Confirm the other pair clamps,
+   the rolling pair lets go and turns its grippers back to vertical (red/orange simply roll back).
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
 5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
@@ -81,8 +84,8 @@ Safety rules for every command the app sends (solve, scramble, scan):
 **Black grippers** are treated as an object in front of the cube: their pixels are ignored when a
 sticker is read (on the phone and again on the laptop from the face picture), and a sticker that is mostly
 covered is marked hidden (an X on the phone, ? in the net). When a face has hidden stickers the robot takes
-a **second look**: left/right ease in to C, front/back let go, the phone captures again, and the cube is
-handed back. Anything still hidden at the end is worked out from the rest of the cube (every piece exists
+a **second look**: the other pair clamps, the rolling pair lets go, the phone captures again, and the cube
+is handed back. Anything still hidden at the end is worked out from the rest of the cube (every piece exists
 once, 9 stickers per colour, twist/flip/parity); only a unique answer is used, otherwise the ? stickers are
 left for you to tap.
 
@@ -97,8 +100,8 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 
 `tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
 clamping only square to a face. It enforces the safety rules above (no slider+spinner step, no clamp and
-release in one step, slider wait, an opposite pair always holding). For scanning it also checks the scan
-pose (all grippers vertical, front/back at C, left/right at R) and the second-look hand-off.
+release in one step, slider wait, an opposite pair always holding, paired spinners at most 45° per step). For scanning it also checks the scan
+pose (one pair clamped at L, the other released at R and vertical) and the second-look hand-off.
 
 ```
 cd desktop-go && cp -r ../desktop/web web && DUMP_SEQ=/tmp/seqs.json go test -run TestDumpSolveSeqs .

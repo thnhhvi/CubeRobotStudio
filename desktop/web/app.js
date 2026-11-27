@@ -274,7 +274,7 @@
         confirm: "", confirmed: "turning back", reverting: "turning back" }[sc.phase] ?? sc.phase;
       const stp = (S.scan_steps || [])[sc.index] || {};
       const head = `Scanning ${stp.label || "face"} (${sc.index + 1}/${sc.total})` +
-        (sc.second_look ? " · second look (side arms holding, grippers off the hidden stickers)" : "");
+        (sc.second_look ? " · second look (other arms holding, grippers off the hidden stickers)" : "");
       const mode = sc.phase + sc.index + (sc.second_look ? "b" : "");
       if (ban.dataset.mode !== mode) {
         ban.dataset.mode = mode;
@@ -296,7 +296,7 @@
           $("scan-retake").onclick = () => post("/api/scan/retake");
           $("scan-confirm").onclick = () => post("/api/scan/confirm");
         } else {
-          const ph = { moving: sc.second_look ? "handing the cube to the side arms…" : "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
+          const ph = { moving: sc.second_look ? "handing the cube to the other arms…" : "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
             reverting: "turning back…" }[sc.phase] ?? sc.phase;
           ban.textContent = `${head} — ${ph}`;
         }

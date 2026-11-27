@@ -72,7 +72,7 @@ type ScanState struct {
 	Colors  []byte      // per step: colour letter once known, else '?'
 	Obs     []centerObs // measured centres so far
 	Known   bool        // centre colours assigned (after the first two faces)
-	Second  bool        // second look: side arms holding, grippers moved off the stickers
+	Second  bool        // second look: other arms holding, grippers moved off the stickers
 }
 
 type Controller struct {
@@ -817,10 +817,10 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			}
 			fr := readFace(data)
 			if fr.hiddenEdges() > 0 && useRobot {
-				// second look: left/right take the cube over (at C), front/back let go,
-				// so the stickers under the front/back grippers come into view
+				// second look: the other pair takes the cube over and the rolling pair
+				// lets go, so the stickers under its grippers come into view
 				stopHold()
-				fr2, err := c.secondLook(s, i, len(steps), label, d)
+				fr2, err := c.secondLook(s, w.Step, i, len(steps), label, d)
 				if err != nil {
 					return c.scanFail(err)
 				}
@@ -1014,16 +1014,17 @@ func (fr *faceRead) merge(o *faceRead) {
 	fr.logo = fr.logo || o.logo
 }
 
-// secondLook hands the cube from the front/back grippers to the left/right ones, takes
+// secondLook hands the cube from the rolling pair to the other pair, takes
 // another picture of the same face and hands it back. nil result = no usable picture.
-func (c *Controller) secondLook(s *ScanState, i, total int, label string, d int) (*faceRead, error) {
-	c.logf("info", "Some stickers are hidden by the grippers - taking a second look with the side arms holding")
+func (c *Controller) secondLook(s *ScanState, st ScanStep, i, total int, label string, d int) (*faceRead, error) {
+	off, back := st.look2()
+	c.logf("info", "Some stickers are hidden by the grippers - taking a second look with the other arms holding")
 	c.mu.Lock()
 	s.Phase, s.Second = "moving", true
 	c.mu.Unlock()
 	c.PushState()
 	defer func() { c.mu.Lock(); s.Second = false; c.mu.Unlock() }()
-	if err := c.rq.Run("SEQ " + fillSeq(handOffSeq, d)); err != nil {
+	if err := c.rq.Run("SEQ " + fillSeq(off, d)); err != nil {
 		return nil, err
 	}
 	c.mu.Lock()
@@ -1049,7 +1050,7 @@ func (c *Controller) secondLook(s *ScanState, i, total int, label string, d int)
 		return nil, errors.New("aborted")
 	}
 	fr := readFace(data)
-	if err := c.rq.Run("SEQ " + fillSeq(handBackSeq, d)); err != nil {
+	if err := c.rq.Run("SEQ " + fillSeq(back, d)); err != nil {
 		return nil, err
 	}
 	return fr, nil
