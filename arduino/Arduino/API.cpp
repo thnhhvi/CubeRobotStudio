@@ -79,6 +79,7 @@ void APILoop()
         Serial.println("MOVE <delay_ms> <orientation> <moves>");
         Serial.println("GLIDE [0|1]");
         Serial.println("GRIP [us]");
+        Serial.println("FOLLOW [pct]");
         return;
     }
 
@@ -92,6 +93,19 @@ void APILoop()
         }
         Serial.print("OK GRIP ");
         Serial.println(seqManager.hardGripUs);
+        return;
+    }
+
+    // --- FOLLOW (Cube Robot Studio): how far tracking sliders back off at 45 deg ---
+    if (strcmp(cmd, "FOLLOW") == 0)
+    {
+        if (tokenCount == 2)
+        {
+            int v = atoi(tokens[1]);
+            seqManager.trackPct = v < 0 ? 0 : (v > 100 ? 100 : v);
+        }
+        Serial.print("OK FOLLOW ");
+        Serial.println(seqManager.trackPct);
         return;
     }
 

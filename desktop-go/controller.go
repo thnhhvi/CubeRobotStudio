@@ -28,6 +28,7 @@ type Settings struct {
 	LowPower        bool    `json:"low_power"`
 	FlipGripUs      int     `json:"flip_grip_us"` // H clamp: this much harder than L while flipping
 	SyncMs          int     `json:"sync_ms"`      // time of one synced step (paired servos)
+	FollowPct       int     `json:"follow_pct"`   // following sliders back off this % of C->R at 45 deg
 }
 
 // ---------------------------------------------------------------- bus
@@ -118,7 +119,7 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000, FollowPct: 60},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
@@ -293,7 +294,7 @@ const glideHelp = "This is the stock firmware: when two spinners turn together (
 // checkGlide turns on synced spinner moves when the firmware has them, else warns.
 func (c *Controller) checkGlide() {
 	if c.rq.EnableGlide() {
-		c.rq.SetGrip(c.cfg().FlipGripUs)
+		c.rq.SetGrip(c.cfg().FlipGripUs, c.cfg().FollowPct)
 		c.logf("info", "Firmware glide on: spinners that turn together move in sync; flips clamp %d µs harder", c.cfg().FlipGripUs)
 	} else if !c.rq.CalibrationFirmware() {
 		c.logf("error", glideHelp)
@@ -490,6 +491,15 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			if s.SyncMs > 2500 {
 				s.SyncMs = 2500
 			}
+		case "follow_pct":
+			s.FollowPct = int(toFloat(v))
+			if s.FollowPct < 0 {
+				s.FollowPct = 0
+			}
+			if s.FollowPct > 100 {
+				s.FollowPct = 100
+			}
+			grip = true
 		case "flip_grip_us":
 			s.FlipGripUs = int(toFloat(v))
 			if s.FlipGripUs < 0 {
@@ -518,7 +528,7 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.rq.SetLowPower(s.LowPower)
 	setSyncTime(s.SyncMs)
 	if grip {
-		c.rq.SetGrip(s.FlipGripUs)
+		c.rq.SetGrip(s.FlipGripUs, s.FollowPct)
 	}
 	c.PushState()
 	return nil
@@ -947,6 +957,18 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			if err := c.rq.Run("SEQ " + fillSeq(w.Step.Revert, d)); err != nil {
 				return c.scanFail(err)
 			}
+		}
+	}
+	c.mu.Lock()
+	finish := c.plan.Finish
+	c.mu.Unlock()
+	if useRobot && finish != "" { // back to where the cube started
+		c.mu.Lock()
+		s.Phase = "reverting"
+		c.mu.Unlock()
+		c.PushState()
+		if err := c.rq.Run("SEQ " + fillSeq(finish, d)); err != nil {
+			return c.scanFail(err)
 		}
 	}
 	c.mu.Lock()

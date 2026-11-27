@@ -27,6 +27,7 @@ private:
     int toPulse{};
     unsigned long glideStart{};
     unsigned int glideMs{0};
+    bool tracking{false};   // T: follow the roll of the other pair
 
 public:
 

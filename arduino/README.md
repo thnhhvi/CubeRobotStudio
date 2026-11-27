@@ -27,6 +27,11 @@
    further than its L position. The app uses it for the pair carrying the cube while flipping it and sets
    the amount with `GRIP <us>` (Flip grip in the Robot panel, 0–150).
 
+4. **Following sliders (`T` state, `FOLLOW` command).** In a roll step the non-carrying pair is sent `T`:
+   it stays in contact with the rolling cube as a base, at C for 0° and 90° and backed off by `TRACK_PCT`
+   (default 60) % of its C→R travel at 45°, where the corners stick out most. It follows the same timing
+   as the rolling spinners and ends at C. `FOLLOW <pct>` sets the amount (Roll follow in the app).
+
 The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
 
 ## Upload

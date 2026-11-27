@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <math.h>
 #include <Servo.h>
 #include "MyServo.h"
 #include "Config.h"
@@ -22,6 +23,22 @@ MyServo::MyServo(int pin, ServoType type, ServoCal calibration) :
 
 void MyServo::setState(ServoState next, unsigned int glide)
 {
+    if (next == STATE_T)
+    {
+        // slider only: start at C (touching) and follow the roll in update()
+        tracking = (type % 2 == 1) && seqManager.rollMs > 0;
+        glideMs = 0;
+        state = STATE_C;
+        if (!tracking || !attached)
+        {
+            tracking = false;
+            pulse = cal.C_us;
+            if (attached)
+                thisServo.writeMicroseconds(pulse);
+        }
+        return;
+    }
+    tracking = false;
     int target = pulse;
     switch (next)
     {
@@ -76,6 +93,32 @@ void MyServo::setState(ServoState next, unsigned int glide)
 
 void MyServo::update(unsigned long now)
 {
+    if (tracking)
+    {
+        // roll angle follows the spinners' smoothstep; the cube's half-width along this
+        // slider is (cos a + sin a) / 2 of the edge: back off by (cos a + sin a - 1)
+        unsigned long t = now - seqManager.rollStart;
+        int p;
+        if (seqManager.rollMs == 0 || t >= seqManager.rollMs)
+        {
+            p = cal.C_us;
+            tracking = false;
+        }
+        else
+        {
+            float x = (float)t / (float)seqManager.rollMs;
+            float a = x * x * (3.0f - 2.0f * x) * 1.5707963f;
+            float off = (cosf(a) + sinf(a) - 1.0f) / 0.41421356f;   // 0 .. 1 (at 45 deg)
+            p = (int)cal.C_us + (int)(((int)cal.R_us - (int)cal.C_us) * off * seqManager.trackPct / 100.0f);
+        }
+        if (p != pulse)
+        {
+            pulse = p;
+            if (attached)
+                thisServo.writeMicroseconds(pulse);
+        }
+        return;
+    }
     if (glideMs == 0)
         return;
     unsigned long t = now - glideStart;

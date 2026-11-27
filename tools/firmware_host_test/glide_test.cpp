@@ -58,6 +58,20 @@ int main() {
         return 1;
     }
     if (!slidersGlided) { printf("FAIL: paired sliders do not glide together\n"); return 1; }
+    // tracking sliders: the right slider follows a roll by the front/back spinners
+    seqManager.startSequence("fLbRRT600");
+    int mid = 0, endP = 0;
+    unsigned long t0 = NOW;
+    for (; NOW <= t0 + 900; NOW++) {
+        updateAllServos();
+        seqManager.tick();
+        if (NOW == t0 + 100 + 210) mid = servos[RIGHT_SLIDER].pulseWidth();  // half way: 45 deg
+    }
+    endP = servos[RIGHT_SLIDER].pulseWidth();
+    if (abs(mid - (2250 - 600)) > 15 || endP != 2250) {
+        printf("FAIL: tracking slider mid=%d (want ~1650) end=%d (want 2250)\n", mid, endP);
+        return 1;
+    }
     printf("firmware glide: paired spinners stay within %.1f%% of each other\n", worst * 100);
     return 0;
 }

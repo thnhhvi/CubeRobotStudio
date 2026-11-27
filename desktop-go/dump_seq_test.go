@@ -59,6 +59,6 @@ func TestDumpScanPlan(t *testing.T) {
 		off, back := st.look2()
 		steps = append(steps, s{st.ID, st.Present, st.Revert, off, back})
 	}
-	b, _ := json.Marshal(steps)
+	b, _ := json.Marshal(map[string]any{"steps": steps, "finish": defaultPlan().Finish})
 	os.WriteFile(out, b, 0o644)
 }

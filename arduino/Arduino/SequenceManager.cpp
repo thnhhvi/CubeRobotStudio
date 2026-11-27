@@ -17,6 +17,7 @@ static bool parseServoState(char c, ServoState& state)
         case 'r': state = STATE_r; return true;
         case 'l': state = STATE_l; return true;
         case 'H': state = STATE_H; return true;
+        case 'T': state = STATE_T; return true;
         default: return false;
     }
 }
@@ -143,6 +144,9 @@ int SequenceManager::handleSequence()
             if (sliders >= 2) slideGlide = g;
         }
     }
+    // a roll in this step: tracking sliders (T) follow its timing
+    rollStart = millis();
+    rollMs = spinGlide;
 
     // Execute until we hit a delay or end of sequence
     while (activeSequence[sequenceIndex] != '\0' &&

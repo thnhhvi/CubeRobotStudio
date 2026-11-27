@@ -31,3 +31,9 @@
 // position (pressing a little harder while the cube is flipped). The app can change it at
 // runtime with "GRIP <us>" (0..150).
 #define HARD_GRIP_US 40
+
+// Cube Robot Studio: state "T" (track) for the non-carrying sliders during a roll. They
+// stay in contact with the rolling cube as a base: at 0 and 90 deg at C (touching), at
+// 45 deg backed off by this percentage of the C->R distance (a cube's corners stick out
+// sqrt(2) times as far). "FOLLOW <pct>" changes it at runtime (0..100).
+#define TRACK_PCT 60

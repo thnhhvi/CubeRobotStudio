@@ -162,7 +162,7 @@ func TestAppFlow(t *testing.T) {
 			c.mu.Lock()
 			lbl, known := c.scan.Labels[1], c.scan.Known
 			c.mu.Unlock()
-			if known || lbl != "bottom face" {
+			if known || lbl != "left-arm face" {
 				t.Fatalf("before 2 faces: known=%v label=%q", known, lbl)
 			}
 		}
@@ -170,8 +170,8 @@ func TestAppFlow(t *testing.T) {
 			c.mu.Lock()
 			known, lbl := c.scan.Known, c.scan.Labels[2]
 			c.mu.Unlock()
-			if !known || lbl != "blue" {
-				t.Fatalf("after 2 faces: known=%v label=%q (want blue)", known, lbl)
+			if !known || lbl != "yellow" {
+				t.Fatalf("after 2 faces: known=%v label=%q (want yellow)", known, lbl)
 			}
 			shoot(tiles(true), tiles(true))
 			waitFor(t, "confirm", func() bool { p, _ := scanPhase(c); return p == "confirm" })

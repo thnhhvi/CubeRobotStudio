@@ -65,6 +65,9 @@ Safety rules for every command the app sends (solve, scramble, scan):
   firmware jumps at full servo speed; the app then shows "stock firmware (spinners not synced)".
 * **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H, and eases
   back to L once the other pair holds again.
+* **A base while rolling.** The other pair does not let go: it eases to C (touching) and follows the cube
+  through the roll with its grippers vertical (state T): touching at 0° and 90°, backing off for the corners
+  in between (*Roll follow* in the Robot panel, default 60% of its C→R travel at 45°). Then it clamps.
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, then right and left to L (`SEQ FLBL600RLLL600`).
@@ -79,19 +82,18 @@ Safety rules for every command the app sends (solve, scramble, scan):
 
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
-3. Each face is rolled straight up to the camera. In the scan pose the rolling pair is **clamped at L with
-   its grippers vertical (C)**, so they carry the cube like a platform, and the other pair waits **released
-   at R**, grippers vertical too. To end vertical after a 90° roll, the rolling pair first turns its
-   grippers the other way while released (the other pair holds the cube), clamps, and turns back while the
-   other pair lets go. Green, yellow, blue and white are rolled up by front/back, red and orange by
-   left/right (they are rolled back after Confirm).
+3. The face already on top is scanned first, without a roll. Each further face is rolled straight up by
+   one pair (pre-turn its grippers while released, clamp hard, roll while the other pair follows as a
+   base). In the scan pose the rolling pair is **clamped at L with its grippers vertical** and the other
+   pair waits **released at R**. Example for red front / white top: white, green, yellow, blue
+   (front/back roll), red, orange (left/right roll), then one last roll brings the cube back to where it
+   started.
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
 5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
    app works out the cube's orientation from the two measured centres (two adjacent centres fix it). The
    other faces then show their colours. At the end all six centres are checked again.
-   Example for red front / white top: green, yellow, blue, white (front/back arms lift), then red, orange
-   (left/right arms lift). The cube ends where it started, every gripper vertical and clamped.
+   The cube ends where it started, every gripper vertical and clamped.
 
 **Black grippers** are treated as an object in front of the cube: their pixels are ignored when a
 sticker is read (on the phone and again on the laptop from the face picture), and a sticker that is mostly

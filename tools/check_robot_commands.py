@@ -15,6 +15,8 @@ group by group (commands between two delays run at the same time):
     one slider, >= 600 ms after two or more sliders, >= 300 ms after one spinner and
     >= 600 ms after two spinners turning together (paired servos glide in sync),
   * H = slider clamped harder than L (used while the cube is flipped),
+  * T = the non-carrying pair follows the rolling cube (only together with that roll,
+    starting at C, grippers vertical),
   * after every group at least one opposite pair (F+B or R+L) holds the cube (L or C),
   * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
     nothing is twisted, all grippers are vertical, F/B hold at C and R/L are released (R).
@@ -52,7 +54,7 @@ class Robot:
         self.scan_rules = scan_rules
 
     def clamped(self, arm):
-        return self.sl[arm.upper()] in "LCH"
+        return self.sl[arm.upper()] in "LCH"     # T (following) does not hold the cube
 
     def run(self, seq, label):
         parts = re.split(r"(\d+)", seq)
@@ -60,17 +62,28 @@ class Robot:
             grp = parts[gi]
             wait = int(parts[gi + 1]) if gi + 1 < len(parts) else None
             spin, slide = {}, {}
-            for s, st in re.findall(r"([FBRLfbrl])([LlCrRH])", grp):
+            for s, st in re.findall(r"([FBRLfbrl])([LlCrRHT])", grp):
                 (slide if s.isupper() else spin)[s] = st
-            if spin and slide:
+            follow = [k for k, v in slide.items() if v == "T"]
+            if spin and any(v != "T" for v in slide.values()):
                 self.err.append(f"{label}: group '{grp}' moves sliders and spinners together")
-            depth = {"R": 0, "r": 0, "C": 1, "l": 1, "L": 2, "H": 3}
-            clamps = [k for k, v in slide.items() if depth[v] > depth[self.sl[k]]]
-            frees = [k for k, v in slide.items() if depth[v] < depth[self.sl[k]]]
+            if follow:
+                rolling = [k for k in spin if ANG[spin[k]] != self.sp[k]]
+                if len(rolling) != 2 or any(self.sl[k] != "C" for k in follow) \
+                        or any(PAIR[k.lower()].upper() not in follow for k in follow):
+                    self.err.append(f"{label}: following sliders {follow} need to start at C "
+                                    f"(touching), as a pair, while the other pair rolls the cube")
+                if any(r.upper() in follow for r in rolling):
+                    self.err.append(f"{label}: a following slider belongs to a rolling arm")
+                if any(self.sp[k.lower()] != 0 for k in follow):
+                    self.err.append(f"{label}: following arm gripper not vertical (no flat base)")
+            depth = {"R": 0, "r": 0, "C": 1, "l": 1, "L": 2, "H": 3, "T": 1}
+            clamps = [k for k, v in slide.items() if v != "T" and depth[v] > depth[self.sl[k]]]
+            frees = [k for k, v in slide.items() if v != "T" and depth[v] < depth[self.sl[k]]]
             if clamps and frees:
                 self.err.append(f"{label}: group '{grp}' clamps {clamps} and releases {frees} at once")
             need_sl = 600 if len(slide) > 1 else 400
-            if slide and wait is not None and wait < need_sl:
+            if slide and not spin and wait is not None and wait < need_sl:
                 self.err.append(f"{label}: only {wait} ms after slider group '{grp}' (needs {need_sl})")
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
@@ -122,6 +135,8 @@ class Robot:
                     done.add(k)
             for k, v in spin.items():
                 self.sp[k] = ANG[v]
+            for k in follow:            # a following slider ends touching
+                self.sl[k] = "C"
             if grp and not ((self.clamped("f") and self.clamped("b")) or
                             (self.clamped("r") and self.clamped("l"))):
                 self.err.append(f"{label}: after '{grp}' no opposite pair holds the cube {self.sl}")
@@ -211,7 +226,8 @@ def fill(seq):
 
 
 def check_scan(path, front="R", top="W"):
-    plan = json.load(open(path))
+    data = json.load(open(path))
+    plan, finish = (data["steps"], data.get("finish", "")) if isinstance(data, dict) else (data, "")
     home = cube.solved_colors(front, top)
     rob = Robot(home, scan_rules=True)
     seen = []
@@ -228,6 +244,8 @@ def check_scan(path, front="R", top="W"):
             rob.run(fill(st["handback"]), st["id"] + " hand-back")
             rob.scan_pose(st["id"] + " after hand-back")
         rob.run(fill(st["revert"]), st["id"] + " revert")
+    if finish:
+        rob.run(fill(finish), "finish")
     ok_home = rob.c == home and not any(rob.tilt.values()) and not any(rob.twist.values()) \
         and all(v == "L" for v in rob.sl.values()) and not any(rob.sp.values())
     print("scan: camera sees", " -> ".join(cube.COLOR_NAMES[c] for c in seen),
