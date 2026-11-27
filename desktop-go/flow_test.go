@@ -67,14 +67,14 @@ func TestAppFlow(t *testing.T) {
 		}
 	}()
 	waitFor(t, "solver", func() bool { c.mu.Lock(); defer c.mu.Unlock(); return c.solverReady })
-	if err := c.UpdateSettings(map[string]any{"delay": 120.0, "sync_ms": 600.0}); err != nil {
+	if err := c.UpdateSettings(map[string]any{"delay": 120.0}); err != nil {
 		t.Fatal(err)
 	}
 	if err := c.Connect("SIMULATOR"); err != nil {
 		t.Fatal(err)
 	}
 	waitFor(t, "slider query", func() bool { return len(c.rq.SliderStates()) == 4 })
-	waitFor(t, "glide", func() bool { return c.rq.Glide() })
+	waitFor(t, "firmware", func() bool { return c.rq.CRSFirmware() })
 
 	for _, f := range []func() error{c.CloseArms, c.OpenArms, c.CloseArms} {
 		if err := f(); err != nil {
@@ -198,15 +198,7 @@ func TestAppFlow(t *testing.T) {
 		if err := c.ConfirmScan("confirm"); err != nil {
 			t.Fatal(err)
 		}
-		if i == len(steps)-2 { // auto change stops before the last face
-			waitFor(t, "change face", func() bool { p, _ := scanPhase(c); return p == "next" })
-			if c.cfg().AutoNext {
-				t.Fatal("auto change still on before the last face")
-			}
-			if err := c.NextFace(); err != nil {
-				t.Fatal(err)
-			}
-		}
+
 	}
 	waitFor(t, "scan end", func() bool { return idle(c) })
 	c.mu.Lock()

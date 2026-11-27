@@ -23,8 +23,6 @@ void loop() {
         detachAllServos();
 #endif
         
-    updateAllServos();  // advance spinner glides (Cube Robot Studio)
-
 #if CALIBRATE
     calibrateLoop();
 #else

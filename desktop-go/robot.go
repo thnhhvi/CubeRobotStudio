@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -19,8 +18,8 @@ const (
 	NORMAL   = 0 // home orientation (orientations: see planner.go)
 	moveBuf  = 60
 	seqBuf   = 250
-	openSeq  = "RRLRFRBR600"    // all sliders R: released, cube can be taken out (glide together)
-	closeSeq = "FLBL600RLLL600" // front + back clamp (L), then right + left (each pair glides)
+	openSeq  = "RRLRFRBR"    // all sliders R: released, cube can be taken out
+	closeSeq = "FLBL500RLLL" // front + back clamp (L), 500 ms, then right + left
 )
 
 func toRobotMoves(moves []string) string {
@@ -41,35 +40,12 @@ func toRobotMoves(moves []string) string {
 }
 
 // Minimum times (ms) so a step has really finished before the next one starts, even
-// at the fastest speed setting: a 90 deg spinner turn, one slider stroke, and paired
-// moves (two spinners or two sliders together: the GLIDE firmware moves them along one
-// timed path over 70% of the step, the rest lets them settle).
+// at the fastest speed setting: a 90 deg spinner turn, a slider stroke, and two spinners
+// turning together (a roll, the cube's weight on them).
 func spinWait(d int) int    { return maxInt(d, 300) }
 func slider1Wait(d int) int { return maxInt(d, 400) }
-func sliderWait(d int) int  { return maxInt(d, syncTime()) }   // two or more sliders
-func pairWait(d int) int    { return maxInt(2*d, syncTime()) } // two spinners
-
-// syncMs is the time of one synced (paired) step, the "Sync move time" setting. The
-// servos glide over 70% of it; it must be slow enough for both servos to follow the
-// path under load, or the faster one runs ahead again.
-var syncMs atomic.Int32
-
-func syncTime() int {
-	if v := int(syncMs.Load()); v >= 600 {
-		return v
-	}
-	return 600
-}
-
-func setSyncTime(ms int) {
-	if ms < 600 {
-		ms = 600
-	}
-	if ms > 2500 {
-		ms = 2500
-	}
-	syncMs.Store(int32(ms))
-}
+func sliderWait(d int) int  { return maxInt(d, 400) } // two or more sliders
+func pairWait(d int) int    { return maxInt(d, 400) } // two spinners (roll)
 
 func maxInt(a, b int) int {
 	if a > b {
@@ -250,7 +226,6 @@ type Simulator struct {
 	busy   bool
 	cancel chan struct{}
 	state  map[byte]byte
-	glide  bool
 }
 
 func (s *Simulator) later(msg string, d time.Duration) {
@@ -266,23 +241,14 @@ func (s *Simulator) receive(line string) {
 	switch parts[0] {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
-	case "FOLLOW":
-		s.later("OK FOLLOW 60", 10*time.Millisecond)
+	case "INFO":
+		s.later("OK CRS 2.8", 10*time.Millisecond)
 	case "GRIP":
 		g := "40"
 		if len(parts) == 2 {
 			g = parts[1]
 		}
 		s.later("OK GRIP "+g, 10*time.Millisecond)
-	case "GLIDE":
-		if len(parts) == 2 {
-			s.glide = parts[1] != "0"
-		}
-		g := "0"
-		if s.glide {
-			g = "1"
-		}
-		s.later("OK GLIDE "+g+" v2.5", 10*time.Millisecond)
 	case "STATUS":
 		if len(parts) == 2 && len(parts[1]) == 1 {
 			st := byte('C')
@@ -389,15 +355,14 @@ type RobotQueue struct {
 	lowPower    bool          // servos on USB power: hold at C instead of L
 	calibFW     bool          // Arduino runs the calibration firmware (CALIBRATE true)
 	statusCh    chan byte
-	glideCh     chan string
-	glide       bool   // firmware supports GLIDE (paired spinners move in sync)
-	fwVersion   string // Cube Robot Studio firmware version ("" = before 2.5 or stock)
+	infoCh      chan string
+	fwVersion   string // Cube Robot Studio firmware version ("" = stock firmware)
 }
 
 func NewRobotQueue(l *Link, emit func(map[string]any)) *RobotQueue {
 	return &RobotQueue{link: l, emit: emit, State: "IDLE", idle: NewEvent(true), busySeen: NewEvent(false),
 		aborted: NewEvent(false), sliders: map[byte]byte{}, statusCh: make(chan byte, 4),
-		glideCh: make(chan string, 2)}
+		infoCh: make(chan string, 2)}
 }
 
 // calibration firmware prints e.g. "Selected Servo: 0 (RIGHT_SPINNER) | Mode: CENTER ..."
@@ -430,13 +395,12 @@ func (q *RobotQueue) OnLine(line string) {
 		q.calibFW = false
 		q.mu.Unlock()
 	}
-	if strings.HasPrefix(line, "OK GRIP") || line == "ERR cmd: GRIP" ||
-		strings.HasPrefix(line, "OK FOLLOW") || line == "ERR cmd: FOLLOW" {
-		return // answers to "GRIP <us>" / "FOLLOW <pct>"
+	if strings.HasPrefix(line, "OK GRIP") || line == "ERR cmd: GRIP" {
+		return // answer to "GRIP <us>"
 	}
-	if strings.HasPrefix(line, "OK GLIDE") || line == "ERR cmd: GLIDE" {
-		select { // reply to "GLIDE 1" (stock firmware: unknown command)
-		case q.glideCh <- line:
+	if strings.HasPrefix(line, "OK CRS") || line == "ERR cmd: INFO" {
+		select { // reply to "INFO" (stock firmware: unknown command)
+		case q.infoCh <- line:
 		default:
 		}
 		return
@@ -499,11 +463,11 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	q.idle.Clear()
 	q.mu.Lock()
 	low := q.lowPower
-	glide := q.glide
+	crs := q.fwVersion != ""
 	q.mu.Unlock()
 	if low && strings.HasPrefix(cmd, "SEQ ") && cmd != "SEQ C" {
 		cmd = "SEQ " + softenHolds(cmd[4:])
-	} else if !glide && strings.HasPrefix(cmd, "SEQ ") {
+	} else if !crs && strings.HasPrefix(cmd, "SEQ ") {
 		cmd = "SEQ " + noHardGrip(cmd[4:]) // stock firmware has no H state
 	}
 	if logIt {
@@ -517,11 +481,7 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 		q.mu.Lock()
 		for _, p := range parseSeq(cmd[4:]) {
 			if strings.IndexByte("FBRL", p[0]) >= 0 {
-				st := p[1]
-				if st == 'T' {
-					st = 'C' // a following slider ends touching
-				}
-				q.sliders[p[0]] = st
+				q.sliders[p[0]] = p[1]
 			}
 		}
 		q.mu.Unlock()
@@ -559,8 +519,7 @@ func (q *RobotQueue) SetLowPower(on bool) { q.mu.Lock(); q.lowPower = on; q.mu.U
 
 // softenHolds turns every slider clamp (L) into a light hold (C); delays and spinner
 // states are kept. Used in low-power mode so the servos draw far less current.
-// noHardGrip adapts a sequence for the stock firmware: no hard clamp (H -> L) and no
-// following sliders (T -> R, released as in the original firmware).
+// noHardGrip adapts a sequence for the stock firmware: no hard clamp (H -> L).
 func noHardGrip(seq string) string {
 	b := []byte(seq)
 	for i := 0; i+1 < len(b); {
@@ -570,9 +529,6 @@ func noHardGrip(seq string) string {
 		}
 		if strings.IndexByte("FBRL", b[i]) >= 0 && b[i+1] == 'H' {
 			b[i+1] = 'L'
-		}
-		if strings.IndexByte("FBRL", b[i]) >= 0 && b[i+1] == 'T' {
-			b[i+1] = 'R'
 		}
 		i += 2
 	}
@@ -635,53 +591,48 @@ func (q *RobotQueue) QuerySliders() {
 	}
 }
 
-// EnableGlide turns on the firmware's synced spinner glide ("GLIDE 1"); false when the
-// firmware is the stock one (no GLIDE command).
-func (q *RobotQueue) EnableGlide() bool {
+// ProbeFirmware asks "INFO": the Cube Robot Studio firmware answers "OK CRS <version>"
+// (hard grip H, servos always powered); the stock firmware answers "ERR cmd: INFO".
+func (q *RobotQueue) ProbeFirmware() bool {
 	if q.CalibrationFirmware() {
 		return false
 	}
-	ok, ver := false, ""
-	for try := 0; try < 3 && !ok; try++ { // a reply can get lost right after connecting
-		for len(q.glideCh) > 0 {
-			<-q.glideCh
+	ver := ""
+	for try := 0; try < 3 && ver == ""; try++ { // a reply can get lost right after connecting
+		for len(q.infoCh) > 0 {
+			<-q.infoCh
 		}
-		if q.link.Send("GLIDE 1") != nil {
+		if q.link.Send("INFO") != nil {
 			break
 		}
 		select {
-		case line := <-q.glideCh:
-			if line == "ERR cmd: GLIDE" {
-				try = 3 // stock firmware: no point asking again
+		case line := <-q.infoCh:
+			if line == "ERR cmd: INFO" {
+				try = 3
 				break
 			}
-			ok = strings.HasPrefix(line, "OK GLIDE 1")
-			if i := strings.Index(line, " v"); i > 0 {
-				ver = strings.TrimSpace(line[i+2:])
-			}
+			ver = strings.TrimSpace(strings.TrimPrefix(line, "OK CRS"))
 		case <-time.After(1500 * time.Millisecond):
 		}
 	}
 	q.mu.Lock()
-	q.glide, q.fwVersion = ok, ver
+	q.fwVersion = ver
 	q.mu.Unlock()
-	return ok
+	return ver != ""
 }
 
 // FirmwareVersion is the Cube Robot Studio firmware version ("" if older / stock).
 func (q *RobotQueue) FirmwareVersion() string { q.mu.Lock(); defer q.mu.Unlock(); return q.fwVersion }
 
-// SetGrip sends how much harder than L the H clamp presses, and how far following
-// sliders back off at 45 deg (GLIDE firmware only).
-func (q *RobotQueue) SetGrip(us, followPct int) {
-	if q.Glide() {
+// SetGrip sends how much harder than L the H clamp presses (Cube Robot Studio firmware).
+func (q *RobotQueue) SetGrip(us int) {
+	if q.CRSFirmware() {
 		q.link.Send(fmt.Sprintf("GRIP %d", us))
-		time.Sleep(50 * time.Millisecond)
-		q.link.Send(fmt.Sprintf("FOLLOW %d", followPct))
 	}
 }
 
-func (q *RobotQueue) Glide() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.glide }
+// CRSFirmware: the Cube Robot Studio firmware runs (H state, GRIP, always powered).
+func (q *RobotQueue) CRSFirmware() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.fwVersion != "" }
 
 func (q *RobotQueue) Abort() {
 	q.mu.Lock()

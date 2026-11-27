@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <math.h>
 #include <Servo.h>
 #include "MyServo.h"
 #include "Config.h"
@@ -21,124 +20,41 @@ MyServo::MyServo(int pin, ServoType type, ServoCal calibration) :
     }
 }
 
-void MyServo::setState(ServoState next, unsigned int glide)
+void MyServo::setState(ServoState next)
 {
-    if (next == STATE_T)
-    {
-        // slider only: start at C (touching) and follow the roll in update()
-        tracking = (type % 2 == 1) && seqManager.rollMs > 0;
-        glideMs = 0;
-        state = STATE_C;
-        if (!tracking || !attached)
-        {
-            tracking = false;
-            pulse = cal.C_us;
-            if (attached)
-                thisServo.writeMicroseconds(pulse);
-        }
-        return;
-    }
-    tracking = false;
-    int target = pulse;
     switch (next)
     {
     case STATE_L:
-        target = cal.L_us; break;
-    case STATE_H:
-        if (type % 2 == 1) // Slider: press a little further than L (away from C)
-        {
-            int extra = seqManager.hardGripUs;
-            target = (cal.L_us >= cal.C_us) ? (int)cal.L_us + extra : (int)cal.L_us - extra;
-        }
+        pulse = cal.L_us; break;
+    case STATE_H:   // Cube Robot Studio: slider presses a little further than L (away from C)
+        if (type % 2 == 1)
+            pulse = (cal.L_us >= cal.C_us) ? (int)cal.L_us + seqManager.hardGripUs
+                                            : (int)cal.L_us - seqManager.hardGripUs;
         else
-            target = cal.L_us;
+            pulse = cal.L_us;
         break;
     case STATE_R:
-        target = cal.R_us; break;
+        pulse = cal.R_us; break;
     case STATE_C:
         if (type % 2 == 1) // Slider
         {
-            target = cal.C_us;
+            pulse = cal.C_us;
             break;
         }  
         if (state == STATE_L || state == STATE_l)
-            target = cal.C_us + cal.CD_us;
+            pulse = cal.C_us + cal.CD_us;
         else if (state == STATE_R || state == STATE_r)
-            target = cal.C_us - cal.CD_us;
+            pulse = cal.C_us - cal.CD_us;
         else
-            target = cal.C_us;   // Double center is absolute center
+            pulse = cal.C_us;   // Double center is absolute center
         break;
     case STATE_r:
-        target = (cal.C_us + cal.R_us) / 2; break;
+        pulse = (cal.C_us + cal.R_us) / 2; break;
     case STATE_l:
-        target = (cal.C_us + cal.L_us) / 2; break;
+        pulse = (cal.C_us + cal.L_us) / 2; break;
     }
     state = next;
-    if (glide > 0 && attached)
-    {
-        // a second command in the same instant ("fCfC") just retargets the glide
-        if (glideMs == 0 || millis() != glideStart)
-        {
-            fromPulse = pulse;
-            glideStart = millis();
-        }
-        toPulse = target;
-        glideMs = glide;
-        return;
-    }
-    glideMs = 0;
-    pulse = target;
     thisServo.writeMicroseconds(pulse);
-}
-
-void MyServo::update(unsigned long now)
-{
-    if (tracking)
-    {
-        // roll angle follows the spinners' smoothstep; the cube's half-width along this
-        // slider is (cos a + sin a) / 2 of the edge: back off by (cos a + sin a - 1)
-        unsigned long t = now - seqManager.rollStart;
-        int p;
-        if (seqManager.rollMs == 0 || t >= seqManager.rollMs)
-        {
-            p = cal.C_us;
-            tracking = false;
-        }
-        else
-        {
-            float x = (float)t / (float)seqManager.rollMs;
-            float a = x * x * (3.0f - 2.0f * x) * 1.5707963f;
-            float off = (cosf(a) + sinf(a) - 1.0f) / 0.41421356f;   // 0 .. 1 (at 45 deg)
-            p = (int)cal.C_us + (int)(((int)cal.R_us - (int)cal.C_us) * off * seqManager.trackPct / 100.0f);
-        }
-        if (p != pulse)
-        {
-            pulse = p;
-            if (attached)
-                thisServo.writeMicroseconds(pulse);
-        }
-        return;
-    }
-    if (glideMs == 0)
-        return;
-    unsigned long t = now - glideStart;
-    if (t >= glideMs)
-    {
-        pulse = toPulse;
-        glideMs = 0;
-    }
-    else
-    {
-        // smoothstep: gentle start and stop, so the servo can follow the path
-        float x = (float)t / (float)glideMs;
-        float e = x * x * (3.0f - 2.0f * x);
-        int p = fromPulse + (int)((toPulse - fromPulse) * e);
-        if (p == pulse)
-            return;
-        pulse = p;
-    }
-    if (attached)
-        thisServo.writeMicroseconds(pulse);
 }
 
 void MyServo::attach()
@@ -218,15 +134,6 @@ void attachAllServos()
     for (int i = 0; i < NUM_SERVOS; i++)
     {
         servos[i].attach();
-    }
-}
-
-void updateAllServos()
-{
-    unsigned long now = millis();
-    for (int i = 0; i < NUM_SERVOS; i++)
-    {
-        servos[i].update(now);
     }
 }
 

@@ -49,25 +49,14 @@ Slider states: **H = clamped a little harder than L** (only while the cube is fl
 Safety rules for every command the app sends (solve, scramble, scan):
 
 * **One type at a time.** A step moves sliders or spinners, never both, and the next step only starts
-  when this one is done: at least **400 ms** after one slider and **300 ms** after one spinner (or the
-  speed setting, if slower). Steps where two or more servos move together take the **Sync move time**
-  (Robot panel, default 1000 ms, at least 600 ms).
+  when this one is done: at least **400 ms** after sliders, **300 ms** after one spinner and **400 ms**
+  after two spinners rolling the cube (or the speed setting, if slower).
 * **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
-* **Paired servos in sync.** Two spinners turning together (cube flips and scan rolls) are one 90° step, and
-  so are two or more sliders moving together (clamp/release of a pair, Open, Close). With the firmware in
-  `arduino/Arduino` (release: `CubeRobotFirmware.zip`) they glide along one smooth, timed path over 70% of
-  the step and settle in the rest, so neither runs ahead (no single face turned, no cube pushed off centre).
-  If one servo still lags, make the Sync move time longer, and power the servos from an external 5–6 V
-  supply: two servos starting together under load pull the Arduino's USB 5 V down, and a starved servo
-  moves slower than its partner. The stock
-  firmware jumps at full servo speed; the app then shows "stock firmware (spinners not synced)".
-* **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H, and eases
-  back to L once the other pair holds again.
-* **A base while rolling.** The other pair does not let go: it eases to C (touching) and follows the cube
-  through the roll with its grippers vertical (state T): touching at 0° and 90°, backing off for the corners
-  in between (*Roll follow* in the Robot panel, default 60% of its C→R travel at 45°). Then it clamps.
+* **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H (Flip
+  grip, default 40 µs past L), the other pair lets go, and once the roll is done the other pair clamps and
+  the carriers ease back to L.
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, then right and left to L (`SEQ FLBL600RLLL600`).
@@ -90,26 +79,21 @@ and one roll takes about as long as five face turns. So the app optimises robot 
 On random cubes this needs about 4 rolls per solve, against about 10 with the old flip-for-every-U/D scheme,
 at the cost of 1–2 extra face turns.
 * The stock firmware cuts power to the servos 3 s after a command; the app then re-sends the slider
-  positions every 2 s while a face waits for the camera. The Cube Robot Studio firmware (2.5+) keeps the
-  servos powered all the time, so no re-sending is needed.
+  positions every 2 s while a face waits for the camera. The Cube Robot Studio firmware keeps the servos
+  powered all the time, so no re-sending is needed.
 
 ## Scanning
 
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
 3. The face already on top is scanned first, without a roll. Each further face is rolled straight up by
-   one pair (pre-turn its grippers while released, clamp hard, roll while the other pair follows as a
-   base). In the scan pose the rolling pair is **clamped at L with its grippers vertical** and the other
+   one pair (pre-turn its grippers while released, clamp hard, the other pair lets go, roll). In the scan pose the rolling pair is **clamped at L with its grippers vertical** and the other
    pair waits **released at R**. Example for red front / white top: white, green, yellow, blue
    (front/back roll), red, orange (left/right roll), then one last roll brings the cube back to where it
    started.
-4. **Change face / Auto change.** With *Auto change* on (switch in the scan banner, laptop and phone) the
-   robot turns to the next face right after Confirm. Before the last face (the one opposite the face just
-   scanned) it switches itself off: check or adjust the cube by hand, then press **Change face ▶** (or
-   Enter). With Auto change off, every face waits for Change face.
-5. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
+4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
-6. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
+5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
    app works out the cube's orientation from the two measured centres (two adjacent centres fix it). The
    other faces then show their colours. At the end all six centres are checked again.
    The cube ends where it started, every gripper vertical and clamped.

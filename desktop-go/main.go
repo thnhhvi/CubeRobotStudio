@@ -13,7 +13,7 @@ import (
 )
 
 // AppVersion is shown in the window and reported to the phone.
-const AppVersion = "2.7"
+const AppVersion = "2.8"
 
 func openBrowser(url string) {
 	var cmd *exec.Cmd

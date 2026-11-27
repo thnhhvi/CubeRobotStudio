@@ -98,7 +98,7 @@ func TestSoftenHolds(t *testing.T) {
 	if got := softenHolds(in); got != want {
 		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
-	if got := softenHolds("FLBL500RLLL"); got != "FCBC500RCLC" {
+	if got := softenHolds(closeSeq); got != "FCBC500RCLC" {
 		t.Fatalf("close: %s", got)
 	}
 }
@@ -121,17 +121,17 @@ func TestCalibrationFirmwareBlocked(t *testing.T) {
 	}
 }
 
-func TestGlideStockFirmware(t *testing.T) {
+func TestFirmwareProbe(t *testing.T) {
 	l := &Link{onLine: func(string) {}, onStatus: func(bool, string) {}}
 	q := NewRobotQueue(l, func(map[string]any) {})
-	l.sim = &Simulator{out: func(s string) {}} // swallows GLIDE: answer like the stock firmware
-	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("ERR cmd: GLIDE") }()
-	if q.EnableGlide() || q.Glide() {
-		t.Fatal("stock firmware reported as glide-capable")
+	l.sim = &Simulator{out: func(s string) {}} // swallows INFO: answer like the stock firmware
+	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("ERR cmd: INFO") }()
+	if q.ProbeFirmware() || q.CRSFirmware() {
+		t.Fatal("stock firmware reported as Cube Robot Studio firmware")
 	}
-	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("OK GLIDE 1 v2.5") }()
-	if !q.EnableGlide() || q.FirmwareVersion() != "2.5" {
-		t.Fatalf("glide firmware not recognised (%q)", q.FirmwareVersion())
+	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("OK CRS 2.8") }()
+	if !q.ProbeFirmware() || q.FirmwareVersion() != "2.8" {
+		t.Fatalf("firmware not recognised (%q)", q.FirmwareVersion())
 	}
 }
 

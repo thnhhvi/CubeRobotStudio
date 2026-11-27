@@ -188,7 +188,7 @@
     $("robot-state").className = "big " + st;
     chip("chip-robot", r.connected ? (r.calibration_fw ? "" : r.state === "BUSY" ? "busy" : "on") : "",
       r.connected ? (r.calibration_fw ? `Robot: ${r.port} ⚠ calibration firmware`
-        : r.glide ? `Robot: ${r.port} · fw ${r.firmware || "< 2.5 ⚠"}` : `Robot: ${r.port} ⚠ stock firmware (spinners not synced)`) : "Robot: offline");
+        : r.firmware ? `Robot: ${r.port} · fw ${r.firmware}` : `Robot: ${r.port} · stock firmware`) : "Robot: offline");
     if (r.calibration_fw && !calibWarned) {
       calibWarned = true;
       toast("⚠ The Arduino runs the CALIBRATION firmware - set CALIBRATE false in Config.h and upload again", "error");
@@ -210,8 +210,6 @@
     if (document.activeElement !== $("speed")) $("speed").value = S.settings.delay;
     $("speed-val").textContent = S.settings.delay + " ms";
     $("low-power").checked = !!S.settings.low_power;
-    if (document.activeElement !== $("follow-pct")) $("follow-pct").value = S.settings.follow_pct ?? 60;
-    if (document.activeElement !== $("sync-ms")) $("sync-ms").value = S.settings.sync_ms || 1000;
     if (document.activeElement !== $("flip-grip")) $("flip-grip").value = S.settings.flip_grip_us ?? 40;
     $("pose-badge").textContent = S.pose ? `rolled (${S.pose})` : "home pose";
     const w = (S.warnings || []).map((x) => `<div class="warn">⚠ ${x}</div>`).join("");
@@ -275,13 +273,11 @@
     if (sc && !sc.done) {
       ban.classList.remove("hidden");
       const ph = { moving: "robot presenting", capture: "📷 capture on phone", captured: "checking…",
-        confirm: "", confirmed: "turning back", reverting: "turning to the next face", next: "waiting for Change face" }[sc.phase] ?? sc.phase;
+        confirm: "", confirmed: "turning back", reverting: "turning to the next face" }[sc.phase] ?? sc.phase;
       const stp = (S.scan_steps || [])[sc.index] || {};
       const head = `Scanning ${stp.label || "face"} (${sc.index + 1}/${sc.total})` +
         (sc.second_look ? " · second look (other arms holding, grippers off the hidden stickers)" : "");
-      const mode = sc.phase + sc.index + (sc.second_look ? "b" : "") + (S.settings.auto_next ? "a" : "m");
-      const autoBox = `<label class="check" title="On: the robot turns to the next face right after Confirm. It switches itself off before the last face, so you can check the cube first.">
-            <input type="checkbox" id="scan-auto" ${S.settings.auto_next ? "checked" : ""}> Auto change</label>`;
+      const mode = sc.phase + sc.index + (sc.second_look ? "b" : "");
       if (ban.dataset.mode !== mode) {
         ban.dataset.mode = mode;
         const fr = NAMES[S.settings.front], tp = NAMES[S.settings.top];
@@ -292,26 +288,21 @@
           $("scan-cancel").onclick = () => post("/api/scan/cancel");
           $("scan-begin").onclick = () => post("/api/scan/begin");
         } else if (sc.phase === "capture") {
-          ban.innerHTML = `<span>${head} — aim the phone, then</span>${autoBox}
+          ban.innerHTML = `<span>${head} — aim the phone, then</span>
             <button class="ok" id="scan-trigger">📷 Scan face</button>`;
           $("scan-trigger").onclick = () => post("/api/scan/trigger");
         } else if (sc.phase === "confirm") {
-          ban.innerHTML = `<span>${head} — check the colours in the net</span>${autoBox}
+          ban.innerHTML = `<span>${head} — check the colours in the net</span>
             <button class="ghost" id="scan-retake">↺ Retake</button>
             <button class="ok" id="scan-confirm">Confirm ✓</button>`;
           $("scan-retake").onclick = () => post("/api/scan/retake");
           $("scan-confirm").onclick = () => post("/api/scan/confirm");
-        } else if (sc.phase === "next") {
-          ban.innerHTML = `<span>${head} — scanned ✓. Check or adjust the cube, then</span>${autoBox}
-            <button class="ok" id="scan-next">Change face ▶</button>`;
-          $("scan-next").onclick = () => post("/api/scan/next");
         } else {
           const ph = { moving: sc.second_look ? "handing the cube to the other arms…" : "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
             reverting: "turning to the next face…" }[sc.phase] ?? sc.phase;
           ban.textContent = `${head} — ${ph}`;
         }
       }
-      if ($("scan-auto")) $("scan-auto").onchange = (e) => post("/api/settings", { auto_next: e.target.checked });
       view.highlight = sc.phase === "ready" ? null : sc.cells || null;
       if (sc.phase !== "ready" && sc.view && JSON.stringify(sc.view) !== view._scanView) {
         view._scanView = JSON.stringify(sc.view);
@@ -408,8 +399,6 @@
   $("speed").oninput = (e) => ($("speed-val").textContent = e.target.value + " ms");
   $("speed").onchange = (e) => post("/api/settings", { delay: +e.target.value });
   $("low-power").onchange = (e) => post("/api/settings", { low_power: e.target.checked });
-  $("follow-pct").onchange = (e) => post("/api/settings", { follow_pct: Number(e.target.value) || 0 });
-  $("sync-ms").onchange = (e) => post("/api/settings", { sync_ms: Number(e.target.value) || 1000 });
   $("flip-grip").onchange = (e) => post("/api/settings", { flip_grip_us: Number(e.target.value) || 0 });
   $("pb-first").onclick = () => previewTo(0);
   $("pb-prev").onclick = () => previewTo(pbPos - 1);
@@ -424,7 +413,6 @@
       if (ph === "ready") post("/api/scan/begin");
       else if (ph === "capture") post("/api/scan/trigger");
       else if (ph === "confirm") post("/api/scan/confirm");
-      else if (ph === "next") post("/api/scan/next");
     } else if (e.key.toLowerCase() === "r" && ph === "confirm") post("/api/scan/retake");
   });
   $("btn-theme").onclick = () => document.body.classList.toggle("light");

@@ -14,7 +14,7 @@ static char* tokens[MAX_TOKENS];
 void APISetup()
 {
     Serial.println(F("Listening for API commands, type 'HELP' for list of commands."));
-    Serial.println(F("Cube Robot Studio firmware " CRS_FIRMWARE_VERSION " (GLIDE GRIP FOLLOW)"));
+    Serial.println(F("Cube Robot Studio firmware " CRS_FIRMWARE_VERSION " (INFO GRIP, H state)"));
     Serial.setTimeout(2000); // safer for long lines
 }
 
@@ -78,9 +78,15 @@ void APILoop()
         Serial.println(F("STATUS [servo]"));
         Serial.println(F("SEQ <string>|C"));
         Serial.println(F("MOVE <delay_ms> <orientation> <moves>"));
-        Serial.println(F("GLIDE [0|1]"));
+        Serial.println(F("INFO"));
         Serial.println(F("GRIP [us]"));
-        Serial.println(F("FOLLOW [pct]"));
+        return;
+    }
+
+    // --- INFO (Cube Robot Studio): firmware identity ---
+    if (strcmp(cmd, "INFO") == 0)
+    {
+        Serial.println(F("OK CRS " CRS_FIRMWARE_VERSION));
         return;
     }
 
@@ -94,30 +100,6 @@ void APILoop()
         }
         Serial.print(F("OK GRIP "));
         Serial.println(seqManager.hardGripUs);
-        return;
-    }
-
-    // --- FOLLOW (Cube Robot Studio): how far tracking sliders back off at 45 deg ---
-    if (strcmp(cmd, "FOLLOW") == 0)
-    {
-        if (tokenCount == 2)
-        {
-            int v = atoi(tokens[1]);
-            seqManager.trackPct = v < 0 ? 0 : (v > 100 ? 100 : v);
-        }
-        Serial.print(F("OK FOLLOW "));
-        Serial.println(seqManager.trackPct);
-        return;
-    }
-
-    // --- GLIDE (Cube Robot Studio): paired spinners move in sync ---
-    if (strcmp(cmd, "GLIDE") == 0)
-    {
-        if (tokenCount == 2)
-            seqManager.glide = atoi(tokens[1]) != 0;
-        Serial.print(F("OK GLIDE "));
-        Serial.print(seqManager.glide ? 1 : 0);
-        Serial.println(F(" v" CRS_FIRMWARE_VERSION));
         return;
     }
 

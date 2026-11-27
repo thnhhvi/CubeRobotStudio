@@ -16,8 +16,7 @@ static bool parseServoState(char c, ServoState& state)
         case 'R': state = STATE_R; return true;
         case 'r': state = STATE_r; return true;
         case 'l': state = STATE_l; return true;
-        case 'H': state = STATE_H; return true;
-        case 'T': state = STATE_T; return true;
+        case 'H': state = STATE_H; return true;   // Cube Robot Studio: hard clamp
         default: return false;
     }
 }
@@ -110,44 +109,6 @@ int SequenceManager::executeUntilDelay()
 
 int SequenceManager::handleSequence()
 {
-    // Two or more spinners (or two or more sliders) in this step glide together over 70%
-    // of the following delay (the rest lets the servos settle before the next step)
-    unsigned int spinGlide = 0, slideGlide = 0;
-    if (glide)
-    {
-        int i = sequenceIndex;
-        int mask = 0, spinners = 0, sliders = 0;
-        while (activeSequence[i] != '\0' && !isdigit(activeSequence[i]))
-        {
-            char c = activeSequence[i];
-            int bit = 0;
-            switch (c)
-            {
-                case 'f': bit = 1; break;   case 'b': bit = 2; break;
-                case 'r': bit = 4; break;   case 'l': bit = 8; break;
-                case 'F': bit = 16; break;  case 'B': bit = 32; break;
-                case 'R': bit = 64; break;  case 'L': bit = 128; break;
-            }
-            if (bit && !(mask & bit))
-            {
-                mask |= bit;
-                if (bit < 16) spinners++; else sliders++;
-            }
-            if (activeSequence[i + 1] == '\0')
-                break;
-            i += 2;
-        }
-        if (isdigit(activeSequence[i]))
-        {
-            unsigned int g = (unsigned int)(strtoul(&activeSequence[i], NULL, 10) * 70UL / 100UL);
-            if (spinners >= 2) spinGlide = g;
-            if (sliders >= 2) slideGlide = g;
-        }
-    }
-    // a roll in this step: tracking sliders (T) follow its timing
-    rollStart = millis();
-    rollMs = spinGlide;
-
     // Execute until we hit a delay or end of sequence
     while (activeSequence[sequenceIndex] != '\0' &&
        !isdigit(activeSequence[sequenceIndex]))
@@ -174,8 +135,8 @@ int SequenceManager::handleSequence()
         }
         sequenceIndex++;
 
-        // Execute move immediately (paired servos: glide)
-        servos[servoType].setState(state, (servoType % 2 == 0) ? spinGlide : slideGlide);
+        // Execute move immediately
+        servos[servoType].setState(state);
     }
 
     // ---- End of sequence ----

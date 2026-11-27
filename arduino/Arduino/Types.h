@@ -7,9 +7,7 @@ enum ServoState
     STATE_R,
     STATE_r,    // 45 degree between CENTER and RIGHT
     STATE_l,  // 45 degree between CENTER and LEFT
-    STATE_H,  // sliders: clamp a little harder than L (HARD_GRIP_US further), used while flipping
-    STATE_T   // sliders: follow the cube while the other pair rolls it (touching at 0 and 90 deg,
-              // backing off for the corners in between); ends at C
+    STATE_H   // sliders: clamp a little harder than L (HARD_GRIP_US further), used while flipping
 };
 
 enum ServoType

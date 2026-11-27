@@ -98,12 +98,6 @@
     <label class="check lowpower" title="While the cube is flipped (solve) or rolled up (scan) the carrying arms clamp this much further than L. Needs the Cube Robot Studio firmware; 0 = same as L.">
       Flip grip: <input type="number" id="flip-grip" min="0" max="150" step="5" style="width:4.5em"> µs harder than L
     </label>
-    <label class="check lowpower" title="Time of one step where two servos move together (cube rolls, pair clamps). The servos glide over 70% of it. If one still runs ahead, make it longer.">
-      Sync move time: <input type="number" id="sync-ms" min="600" max="2500" step="100" style="width:5em"> ms
-    </label>
-    <label class="check lowpower" title="While one pair rolls the cube, the other pair stays in contact as a base (grippers vertical) and backs off for the corners. This is how far it backs off at 45 degrees, in % of its C-to-R travel. Too low: corners catch; too high: less support.">
-      Roll follow: <input type="number" id="follow-pct" min="0" max="100" step="5" style="width:4.5em"> % back-off at 45°
-    </label>
     <div class="btn-grid">
       <button id="btn-open">Open</button>
       <button id="btn-close">Close</button>
@@ -128,7 +122,7 @@
 
     <details class="box">
       <summary>Scan sequence tuning</summary>
-      <div class="small">Servo strings per scan step (firmware <code>SEQ</code> syntax, <code>{d}</code> = one spinner, <code>{p}</code> = two spinners together, <code>{s}</code> = sliders; <code>H</code> = clamp harder than L).
+      <div class="small">Servo strings per scan step (firmware <code>SEQ</code> syntax, <code>{d}</code> = one spinner, <code>{p}</code> = two spinners rolling the cube, <code>{s}</code> = sliders; <code>H</code> = clamp harder than L).
         <b>Jog</b> runs one string so you can check the motion on your calibration.</div>
       <div id="plan"></div>
       <div class="row">

@@ -155,7 +155,6 @@ func newMux(c *Controller) *http.ServeMux {
 	post("/api/scan/capture", func(b map[string]any) error { return c.Capture(b) })
 	post("/api/scan/cancel", func(map[string]any) error { c.CancelScan(); return nil })
 	post("/api/scan/begin", func(map[string]any) error { return c.BeginScan() })
-	post("/api/scan/next", func(map[string]any) error { return c.NextFace() })
 	post("/api/scan/trigger", func(map[string]any) error { return c.TriggerCapture() })
 	post("/api/scan/confirm", func(map[string]any) error { return c.ConfirmScan("confirm") })
 	post("/api/scan/retake", func(map[string]any) error { return c.ConfirmScan("retake") })

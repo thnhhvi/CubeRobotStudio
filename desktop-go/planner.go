@@ -203,8 +203,8 @@ func planRobot(rm string, start int, home bool, d int) ([]RobotStep, int, int) {
 }
 
 // rollSeq: the carrying pair releases, pre-turns its free grippers, clamps hard (H),
-// the other pair eases to C and follows the rolling cube as a base (T), the grippers
-// turn back to vertical (the roll), the other pair clamps, the carriers ease to L.
+// the other pair lets go, the grippers turn back to vertical (the roll), the other
+// pair clamps again, the carriers ease back to L.
 func rollSeq(g string, d int) string {
 	s, p := sliderWait(d), pairWait(d)
 	switch g {
@@ -213,13 +213,13 @@ func rollSeq(g string, d int) string {
 		if g == "z'" {
 			pre = "fRbL"
 		}
-		return fmt.Sprintf("FRBR%d%s%dFHBH%dRCLC%dfCfCbCbCRTLT%dRLLL%dFLBL%d", s, pre, p, s, s, p, s, s)
+		return fmt.Sprintf("FRBR%d%s%dFHBH%dRRLR%dfCfCbCbC%dRLLL%dFLBL%d", s, pre, p, s, s, p, s, s)
 	default:
 		pre := "rLlR" // r turns +90 while clamped: x
 		if g == "x'" {
 			pre = "rRlL"
 		}
-		return fmt.Sprintf("RRLR%d%s%dRHLH%dFCBC%drCrClClCFTBT%dFLBL%dRLLL%d", s, pre, p, s, s, p, s, s)
+		return fmt.Sprintf("RRLR%d%s%dRHLH%dFRBR%drCrClClC%dFLBL%dRLLL%d", s, pre, p, s, s, p, s, s)
 	}
 }
 

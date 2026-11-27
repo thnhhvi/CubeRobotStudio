@@ -1,6 +1,6 @@
 # Firmware for Cube Robot Studio
 
-`Arduino/` is the Yonni123/RubiksCubeRobot firmware with two changes:
+`Arduino/` is the Yonni123/RubiksCubeRobot firmware with these changes:
 
 1. **Pins** (`Config.h`) set to this wiring, `CALIBRATE false`:
 
@@ -15,29 +15,20 @@
    | D8 | left spinner | `LEFT_SPINNER_PIN 8` |
    | D9 | left slider | `LEFT_SLIDER_PIN 9` |
 
-2. **Synced spinners (`GLIDE` command).** With the stock firmware every servo jumps to its new position
-   at full speed. When two spinners turn together to roll the cube, one of them is always a bit faster,
-   and on a light speed cube that is enough to turn one face instead of the whole cube. With `GLIDE 1`
-   (the app sends it on Connect), spinners commanded in the same step - and sliders commanded in the same
-   step - move along one timed, smooth path
-   over 70% of the delay that follows the step (the rest lets them settle), so they stay in sync. A single servo in a step
-   moves as before.
-
-3. **Hard grip (`H` state, `GRIP` command).** `H` clamps a slider `HARD_GRIP_US` (default 40 µs, about 4°)
+2. **Hard grip (`H` state, `GRIP` command).** `H` clamps a slider `HARD_GRIP_US` (default 40 µs, about 4°)
    further than its L position. The app uses it for the pair carrying the cube while flipping it and sets
    the amount with `GRIP <us>` (Flip grip in the Robot panel, 0–150).
 
-4. **Following sliders (`T` state, `FOLLOW` command).** In a roll step the non-carrying pair is sent `T`:
-   it stays in contact with the rolling cube as a base, at C for 0° and 90° and backed off by `TRACK_PCT`
-   (default 60) % of its C→R travel at 45°, where the corners stick out most. It follows the same timing
-   as the rolling spinners and ends at C. `FOLLOW <pct>` sets the amount (Roll follow in the app).
-
-5. **Servos always powered** (`KEEP_ATTACHED true`), like in calibration mode: the arms keep holding
+3. **Servos always powered** (`KEEP_ATTACHED true`), like in calibration mode: the arms keep holding
    between commands instead of going limp 3 s after each one. The servos get warm when they hold for
    a long time.
 
-On boot the firmware prints `Cube Robot Studio firmware 2.5 (GLIDE GRIP FOLLOW)`; the app shows the version
-in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
+4. **`INFO`** answers `OK CRS <version>`, so the app knows this firmware runs.
+
+Servo motion is the stock firmware's (each servo jumps to its new position at full speed).
+
+On boot the firmware prints `Cube Robot Studio firmware 2.8 (INFO GRIP, H state)`; the app shows the
+version in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
 
 ## Upload
 
@@ -45,7 +36,7 @@ in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
 2. Open `Arduino/Arduino.ino` in the Arduino IDE, board **Arduino Nano** (processor *ATmega328P (Old
    Bootloader)* if the upload fails), select the COM port, **Upload**.
 3. Close the Serial Monitor, then Connect in Cube Robot Studio. The log shows
-   "Firmware glide on: spinners that turn together move in sync".
+   "Cube Robot Studio firmware 2.8".
 
 Your **calibration is kept**: it lives in the EEPROM, which an upload does not erase.
 

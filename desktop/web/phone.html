@@ -101,21 +101,12 @@
     if (sc && !sc.done) {
       $("banner").classList.remove("hidden");
       const stp = (st.scan_steps || [])[sc.index] || {};
-      const mode = sc.phase + sc.index + (st.settings.auto_next ? "a" : "m");
-      if ($("banner").dataset.mode !== mode) {
-        $("banner").dataset.mode = mode;
-        const head = sc.phase === "ready" ? "Scan mode — tap Start scanning" :
-          `Scanning ${stp.label || "face"} ${sc.index + 1}/${sc.total}` + (sc.phase === "next" ? " ✓" : "");
-        $("banner").innerHTML = `<span>${head}</span>` + (sc.phase === "ready" ? "" :
-          `<label style="margin-left:8px"><input type="checkbox" id="auto" ${st.settings.auto_next ? "checked" : ""}> Auto</label>`) +
-          (sc.phase === "next" ? ` <button id="next" class="ok">Change face ▶</button>` : "");
-        if ($("auto")) $("auto").onchange = (e) => post("/api/settings", { auto_next: e.target.checked });
-        if ($("next")) $("next").onclick = () => post("/api/scan/next");
-      }
+      $("banner").textContent = sc.phase === "ready" ? "Scan mode — tap Start scanning" :
+        `Scanning ${stp.label || "face"} ${sc.index + 1}/${sc.total}`;
       view.highlight = sc.phase === "ready" ? null : sc.cells;
       if (sc.phase !== "ready" && sc.view && JSON.stringify(sc.view) !== view._sv) { view._sv = JSON.stringify(sc.view); view.setPose(sc.view, 450); }
     } else {
-      $("banner").classList.add("hidden"); $("banner").dataset.mode = ""; view.highlight = null;
+      $("banner").classList.add("hidden"); view.highlight = null;
       if (view._sv) { view._sv = null; view.setPose([], 450); }
     }
   }

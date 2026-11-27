@@ -27,9 +27,6 @@ type Settings struct {
 	ReturnHome      bool    `json:"return_home"`
 	LowPower        bool    `json:"low_power"`
 	FlipGripUs      int     `json:"flip_grip_us"` // H clamp: this much harder than L while flipping
-	SyncMs          int     `json:"sync_ms"`      // time of one synced step (paired servos)
-	FollowPct       int     `json:"follow_pct"`   // following sliders back off this % of C->R at 45 deg
-	AutoNext        bool    `json:"auto_next"`    // scan: move on to the next face right after Confirm
 }
 
 // ---------------------------------------------------------------- bus
@@ -103,7 +100,6 @@ type Controller struct {
 	captureCh    chan map[string]any
 	confirmCh    chan string
 	beginCh      chan bool
-	nextCh       chan bool // scan: "Change face" pressed
 	heard        *Event
 	reconnecting bool
 	pairCode     string
@@ -121,9 +117,9 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000, FollowPct: 60, AutoNext: true},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40},
 		stateKnown: true, pose: "", thumbs: map[string]string{}, phones: map[string]map[string]any{},
-		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), nextCh: make(chan bool, 2), heard: NewEvent(false)}
+		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
 	}
@@ -137,7 +133,6 @@ func NewController() *Controller {
 	c.link.onDrop = c.onDrop
 	c.rq = NewRobotQueue(c.link, c.bus.Emit)
 	c.rq.SetLowPower(c.settings.LowPower)
-	setSyncTime(c.settings.SyncMs)
 	go func() {
 		t0 := time.Now()
 		c.logf("info", "Building solver tables…")
@@ -218,8 +213,7 @@ func (c *Controller) Snapshot() map[string]any {
 		"speed_range": []int{speedMin, speedMax},
 		"robot": map[string]any{"connected": c.link.Connected(), "port": c.link.Port(),
 			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation(),
-			"calibration_fw": c.rq.CalibrationFirmware(), "glide": c.rq.Glide(),
-			"firmware": c.rq.FirmwareVersion()},
+			"calibration_fw": c.rq.CalibrationFirmware(), "firmware": c.rq.FirmwareVersion()},
 		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": info,
 		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": thumbs,
 		"scanned": append([]string{}, c.scanned...), "scan_steps": c.scanSteps(), "phones": phones,
@@ -262,7 +256,7 @@ func (c *Controller) Connect(port string) error {
 	if port == "SIMULATOR" {
 		c.link.Send("PING")
 		c.rq.QuerySliders()
-		c.checkGlide()
+		c.checkFirmware()
 		return nil
 	}
 	// The Nano resets when the port opens: wait for its banner, then PING.
@@ -279,7 +273,7 @@ func (c *Controller) Connect(port string) error {
 			c.logf("info", "Arduino answered on %s", port)
 			c.rq.QuerySliders()
 			c.logf("info", "Slider positions: %s", c.sliderText())
-			c.checkGlide()
+			c.checkFirmware()
 			return nil
 		}
 	}
@@ -289,11 +283,6 @@ func (c *Controller) Connect(port string) error {
 	return nil
 }
 
-const glideHelp = "This is the stock firmware: when two spinners turn together (cube rolls while " +
-	"scanning, flips while solving) one can run ahead and turn a single face instead of the whole cube. " +
-	"Upload the firmware from the arduino/Arduino folder of Cube Robot Studio (CubeRobotFirmware.zip on the " +
-	"release page): it moves paired spinners on one timed path so they stay in sync. Your calibration is kept."
-
 func orStr(a, b string) string {
 	if a == "" {
 		return b
@@ -301,17 +290,15 @@ func orStr(a, b string) string {
 	return a
 }
 
-// checkGlide turns on synced spinner moves when the firmware has them, else warns.
-func (c *Controller) checkGlide() {
-	if c.rq.EnableGlide() {
-		c.rq.SetGrip(c.cfg().FlipGripUs, c.cfg().FollowPct)
-		c.logf("info", "Firmware glide on (Cube Robot Studio firmware %s): paired servos move in sync; flips clamp %d µs harder; support arms follow rolls %d%%",
-			orStr(c.rq.FirmwareVersion(), "before 2.5"), c.cfg().FlipGripUs, c.cfg().FollowPct)
-		if c.rq.FirmwareVersion() == "" {
-			c.logf("error", "This Cube Robot Studio firmware is older than 2.5: upload CubeRobotFirmware.zip from the latest release (servos stay powered between commands).")
-		}
+// checkFirmware asks which firmware runs; the Cube Robot Studio firmware gets the grip.
+func (c *Controller) checkFirmware() {
+	if c.rq.ProbeFirmware() {
+		c.rq.SetGrip(c.cfg().FlipGripUs)
+		c.logf("info", "Cube Robot Studio firmware %s: flips clamp %d µs harder, servos stay powered",
+			c.rq.FirmwareVersion(), c.cfg().FlipGripUs)
 	} else if !c.rq.CalibrationFirmware() {
-		c.logf("error", glideHelp)
+		c.logf("info", "Stock firmware: flips clamp at L (no hard grip) and the servos go limp 3 s after a command. "+
+			"For the hard grip upload CubeRobotFirmware.zip from the release page (calibration is kept).")
 	}
 	c.PushState()
 }
@@ -439,10 +426,6 @@ func (c *Controller) Abort() {
 	case c.beginCh <- false:
 	default:
 	}
-	select {
-	case c.nextCh <- false:
-	default:
-	}
 	if c.link.Connected() {
 		c.rq.Abort()
 	}
@@ -501,25 +484,6 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.ReturnHome, _ = v.(bool)
 		case "low_power":
 			s.LowPower, _ = v.(bool)
-		case "auto_next":
-			s.AutoNext, _ = v.(bool)
-		case "sync_ms":
-			s.SyncMs = int(toFloat(v))
-			if s.SyncMs < 600 {
-				s.SyncMs = 600
-			}
-			if s.SyncMs > 2500 {
-				s.SyncMs = 2500
-			}
-		case "follow_pct":
-			s.FollowPct = int(toFloat(v))
-			if s.FollowPct < 0 {
-				s.FollowPct = 0
-			}
-			if s.FollowPct > 100 {
-				s.FollowPct = 100
-			}
-			grip = true
 		case "flip_grip_us":
 			s.FlipGripUs = int(toFloat(v))
 			if s.FlipGripUs < 0 {
@@ -546,9 +510,8 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.saveSettings()
 	c.mu.Unlock()
 	c.rq.SetLowPower(s.LowPower)
-	setSyncTime(s.SyncMs)
 	if grip {
-		c.rq.SetGrip(s.FlipGripUs, s.FollowPct)
+		c.rq.SetGrip(s.FlipGripUs)
 	}
 	c.PushState()
 	return nil
@@ -782,9 +745,6 @@ func (c *Controller) StartScan() error {
 	for len(c.beginCh) > 0 {
 		<-c.beginCh
 	}
-	for len(c.nextCh) > 0 {
-		<-c.nextCh
-	}
 	return c.startTask("scan", func() error { return c.scanRun(steps) })
 }
 
@@ -825,10 +785,6 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	useRobot := c.link.Connected()
 	if !useRobot {
 		c.logf("info", "Robot not connected: scanning in manual mode (turn the cube by hand)")
-	} else if c.rq.Glide() {
-		c.logf("info", "Synced moves on (firmware glide), %d ms per paired step", syncTime())
-	} else {
-		c.logf("error", "Synced moves are OFF: "+glideHelp)
 	}
 	s := c.scan
 	// scan mode is armed: wait until the user presses "Start scanning"
@@ -959,33 +915,6 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			}
 			c.mu.Unlock()
 			break
-		}
-		if i < len(steps)-1 {
-			if i == len(steps)-2 && c.cfg().AutoNext {
-				// the last face is the hard one (opposite of the one just scanned): stop
-				// here so the cube can be checked/adjusted before the robot turns it
-				c.mu.Lock()
-				c.settings.AutoNext = false
-				c.saveSettings()
-				c.mu.Unlock()
-				c.logf("info", "Auto change switched off for the last face: adjust the cube if needed, then press Change face")
-			}
-			if !c.cfg().AutoNext {
-				for len(c.nextCh) > 0 {
-					<-c.nextCh
-				}
-				c.mu.Lock()
-				s.Phase = "next"
-				c.mu.Unlock()
-				c.bus.Emit(map[string]any{"type": "scan_next", "index": i, "total": len(steps)})
-				c.PushState()
-				stopHold := c.holdPowered(useRobot)
-				ok := <-c.nextCh
-				stopHold()
-				if !ok || c.scanCancelled(s) {
-					return c.scanFail(errors.New("aborted"))
-				}
-			}
 		}
 		c.mu.Lock()
 		s.Phase = "reverting"
@@ -1210,10 +1139,6 @@ func (c *Controller) CancelScan() {
 	case c.beginCh <- false:
 	default:
 	}
-	select {
-	case c.nextCh <- false:
-	default:
-	}
 	if c.link.Connected() && c.rq.GetState() == "BUSY" {
 		c.rq.Abort()
 	}
@@ -1326,21 +1251,6 @@ func (c *Controller) ConfirmScan(action string) error {
 }
 
 // BeginScan: the user pressed "Start scanning" (cube loaded with the chosen front/top).
-// NextFace is the "Change face" button: the robot turns the cube to the next face.
-func (c *Controller) NextFace() error {
-	c.mu.Lock()
-	ok := c.scan != nil && c.scan.Phase == "next"
-	if ok {
-		c.scan.Phase = "reverting"
-	}
-	c.mu.Unlock()
-	if !ok {
-		return errors.New("Not waiting to change face (confirm the face first)")
-	}
-	c.nextCh <- true
-	return nil
-}
-
 func (c *Controller) BeginScan() error {
 	c.mu.Lock()
 	ok := c.scan != nil && c.scan.Phase == "ready"

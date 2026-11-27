@@ -12,8 +12,7 @@ group by group (commands between two delays run at the same time):
   * no layer may turn while a layer on another axis is twisted (the cube would jam),
   * a group moves sliders OR spinners, never both, and never clamps one slider while
     releasing another; the next group only starts when this one is done: >= 400 ms after
-    one slider, >= 600 ms after two or more sliders, >= 300 ms after one spinner and
-    >= 600 ms after two spinners turning together (paired servos glide in sync),
+    sliders, >= 300 ms after one spinner and >= 400 ms after two spinners (a roll),
   * H = slider clamped harder than L (used while the cube is flipped),
   * T = the non-carrying pair follows the rolling cube (only together with that roll,
     starting at C, grippers vertical),
@@ -65,6 +64,8 @@ class Robot:
             for s, st in re.findall(r"([FBRLfbrl])([LlCrRHT])", grp):
                 (slide if s.isupper() else spin)[s] = st
             follow = [k for k, v in slide.items() if v == "T"]
+            if follow:
+                self.err.append(f"{label}: T (following sliders) is not used any more: '{grp}'")
             if spin and any(v != "T" for v in slide.values()):
                 self.err.append(f"{label}: group '{grp}' moves sliders and spinners together")
             if follow:
@@ -82,13 +83,13 @@ class Robot:
             frees = [k for k, v in slide.items() if v != "T" and depth[v] < depth[self.sl[k]]]
             if clamps and frees:
                 self.err.append(f"{label}: group '{grp}' clamps {clamps} and releases {frees} at once")
-            need_sl = 600 if len(slide) > 1 else 400
+            need_sl = 400
             if slide and not spin and wait is not None and wait < need_sl:
                 self.err.append(f"{label}: only {wait} ms after slider group '{grp}' (needs {need_sl})")
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
             moved = {k: ANG[v] - self.sp[k] for k, v in spin.items() if ANG[v] != self.sp[k]}
-            need = 600 if len(moved) > 1 else 300 if moved else 0
+            need = 400 if len(moved) > 1 else 300 if moved else 0
             if need and wait is not None and wait < need:
                 self.err.append(f"{label}: only {wait} ms after spinner group '{grp}' (needs {need})")
             for s, st in slide.items():
@@ -222,7 +223,7 @@ def check_solve(path):
 
 
 def fill(seq):
-    return seq.replace("{d}", "300").replace("{s}", "600").replace("{p}", "600")
+    return seq.replace("{d}", "300").replace("{s}", "400").replace("{p}", "400")
 
 
 def check_scan(path, front="R", top="W"):

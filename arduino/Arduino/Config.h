@@ -32,15 +32,9 @@
 // runtime with "GRIP <us>" (0..150).
 #define HARD_GRIP_US 40
 
-// Cube Robot Studio: state "T" (track) for the non-carrying sliders during a roll. They
-// stay in contact with the rolling cube as a base: at 0 and 90 deg at C (touching), at
-// 45 deg backed off by this percentage of the C->R distance (a cube's corners stick out
-// sqrt(2) times as far). "FOLLOW <pct>" changes it at runtime (0..100).
-#define TRACK_PCT 60
-
 // Cube Robot Studio: keep every servo powered all the time (as in calibration mode), so
 // the arms keep holding and adjusting the cube between commands. The stock firmware
 // lets them go limp 3 s after a command. Servos get warm when they hold for long.
 #define KEEP_ATTACHED true
 
-#define CRS_FIRMWARE_VERSION "2.5"
+#define CRS_FIRMWARE_VERSION "2.8"

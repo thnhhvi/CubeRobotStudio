@@ -58,11 +58,8 @@ jobs:
           DUMP_SEQ=/tmp/seqs.json DUMP_PLAN=/tmp/plan.json go test -count=1 -run 'TestDump' .
           python ../tools/check_robot_commands.py solve /tmp/seqs.json
           python ../tools/check_robot_commands.py scan /tmp/plan.json
-      - name: Firmware host tests (glide, and every app command replayed through the firmware)
+      - name: Firmware host test (every app command replayed through the firmware)
         run: |
-          g++ -std=gnu++17 -I tools/firmware_host_test -I arduino/Arduino tools/firmware_host_test/glide_test.cpp \
-            arduino/Arduino/MyServo.cpp arduino/Arduino/SequenceManager.cpp -o /tmp/glide
-          /tmp/glide
           (cd desktop-go && rm -rf web && cp -r ../desktop/web web && DUMP_FW=/tmp/fw.txt go test -count=1 -run TestDumpFirmwareSeqs .)
           g++ -std=gnu++17 -I tools/firmware_host_test -I arduino/Arduino tools/firmware_host_test/replay_test.cpp \
             arduino/Arduino/MyServo.cpp arduino/Arduino/SequenceManager.cpp -o /tmp/replay

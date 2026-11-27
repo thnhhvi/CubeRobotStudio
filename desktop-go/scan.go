@@ -33,17 +33,16 @@ type ScanPlan struct {
 
 func defaultPlan() ScanPlan {
 	// Sliders: H = clamped a little harder (carrying the cube in a roll), L = clamped,
-	// C = touching, T = following the rolling cube (touching at 0/90 deg, backing off for
-	// the corners, grippers vertical: a base so the cube cannot drop), R = released.
+	// C = touching, R = released.
 	// Spinners: L -90, C 0 (vertical), R +90.
-	// {s} slider step, {p} paired step (servos glide together), {d} one spinner.
+	// {s} slider step, {p} two spinners rolling the cube, {d} one spinner.
 	// The face on top is scanned first without moving. Each further face is rolled up by
-	// one pair: it pre-turns its grippers while released, clamps hard, the other pair eases
-	// to C and follows the cube while the grippers turn back (the roll). Scan pose: the
+	// one pair: it pre-turns its grippers while released, clamps hard, the other pair lets
+	// go and the grippers turn back (the roll). Scan pose: the
 	// rolling pair clamped at L with its grippers vertical, the other pair released at R.
 	roll := func(id, view string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			Present: "FRBR{s}fLbR{p}FHBH{s}RCLC{s}fCfCbCbCRTLT{p}FLBLRRLR{s}",
+			Present: "FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}FLBL{s}",
 			Revert:  "RLLL{s}",
 			Look2:   "RLLL{s}FRBR{s}", Look2Back: "FLBL{s}RRLR{s}",
 			View: []string{view}, Keep: []string{view}}
@@ -51,8 +50,8 @@ func defaultPlan() ScanPlan {
 	// left/right roll red (front) or orange (back) up, and roll it back afterwards
 	b := func(id, pre, back, view string) ScanStep {
 		return ScanStep{ID: id, Axis: "left/right",
-			Present: "RRLR{s}" + pre + "{p}RHLH{s}FCBC{s}rCrClClCFTBT{p}RLLLFRBR{s}",
-			Revert:  "FLBL{s}RRLR{s}" + back + "{p}RHLH{s}FCBC{s}rCrClClCFTBT{p}FLBL{s}RLLL{s}",
+			Present: "RRLR{s}" + pre + "{p}RHLH{s}FRBR{s}rCrClClC{p}RLLL{s}",
+			Revert:  "FLBL{s}RRLR{s}" + back + "{p}RHLH{s}FRBR{s}rCrClClC{p}FLBL{s}RLLL{s}",
 			Look2:   "FLBL{s}RRLR{s}", Look2Back: "RLLL{s}FRBR{s}",
 			View: []string{view}, Keep: []string{}}
 	}
@@ -60,13 +59,13 @@ func defaultPlan() ScanPlan {
 		Present: "RRLR{s}", Revert: "RLLL{s}",
 		Look2: "RLLL{s}FRBR{s}", Look2Back: "FLBL{s}RRLR{s}",
 		View: []string{}, Keep: []string{}}
-	return ScanPlan{CameraFace: "U", Version: 9, Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 10, Steps: []ScanStep{
 		top, roll("A1", "z"), roll("A2", "z"), roll("A3", "z"),
 		b("B1", "rLlR", "rRlL", "x"),  // front (red) -> top
 		b("B2", "rRlL", "rLlR", "x'"), // back (orange) -> top
 	},
 		// after the last face: one more roll brings the cube back to where it started
-		Finish: "FRBR{s}fLbR{p}FHBH{s}RCLC{s}fCfCbCbCRTLT{p}RLLL{s}FLBL{s}"}
+		Finish: "FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}RLLL{s}FLBL{s}"}
 }
 
 // look2 returns the hand-off for a second look at the face (the other pair takes the
@@ -94,6 +93,13 @@ var oldDefaults = map[string]bool{
 	"FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}":     true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}":     true,
+	// v9 (2.4-2.7): the other pair follows the rolling cube (T)
+	"FRBR{s}fLbR{p}FHBH{s}RCLC{s}fCfCbCbCRTLT{p}FLBLRRLR{s}":           true,
+	"RRLR{s}rLlR{p}RHLH{s}FCBC{s}rCrClClCFTBT{p}RLLLFRBR{s}":           true,
+	"FLBL{s}RRLR{s}rRlL{p}RHLH{s}FCBC{s}rCrClClCFTBT{p}FLBL{s}RLLL{s}": true,
+	"RRLR{s}rRlL{p}RHLH{s}FCBC{s}rCrClClCFTBT{p}RLLLFRBR{s}":           true,
+	"FLBL{s}RRLR{s}rLlR{p}RHLH{s}FCBC{s}rCrClClCFTBT{p}FLBL{s}RLLL{s}": true,
+	"RRLR{s}": true,
 	// v8 (2.1-2.3): first face rolled up before scanning, other pair released while rolling
 	"FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}FLBL{s}":               true,
 	"RRLR{s}rLlR{p}RHLH{s}FRBR{s}rCrClClC{p}RLLL{s}":               true,
@@ -132,14 +138,14 @@ var oldDefaults = map[string]bool{
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 9 {
+	if p.Version >= 10 {
 		return p
 	}
 	// a plan made only of old default steps becomes the current default plan (keeping
 	// each face's picture rotation); a plan with edited steps is kept as it is
 	for _, st := range p.Steps {
 		if !oldDefaults[st.Present] || !oldDefaults[st.Revert] {
-			p.Version = 9
+			p.Version = 10
 			return p
 		}
 	}
