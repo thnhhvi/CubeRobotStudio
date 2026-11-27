@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Matrix
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -43,6 +44,10 @@ import java.util.concurrent.Executors
  *  - Otherwise shows the laptop's live 3D model + robot controls (WebView).
  */
 class MainActivity : AppCompatActivity(), Link.Listener {
+    companion object {
+        const val GRAD = "gradient"
+    }
+    private var loadedHost: String? = null
 
     private lateinit var link: Link
     private lateinit var status: TextView
@@ -79,8 +84,8 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val dark = Color.parseColor("#1f1e1d")
-        val panel = Color.parseColor("#2a2927")
+        val dark = Color.parseColor("#12101f")
+        val panel = Color.parseColor("#1b1830")
 
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(dark) }
 
@@ -109,6 +114,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         web = WebView(this).apply {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
+            settings.allowFileAccess = true
             setBackgroundColor(dark)
             webViewClient = WebViewClient()
             webChromeClient = WebChromeClient()
@@ -134,8 +140,8 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             text = "Drag the 4 blue corners onto the face the robot shows."
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        captureBtn = bigButton("Capture", "#3fb27f") { captureNow() }
-        val resetBtn = bigButton("Reset grid", "#33312e") { overlay.resetSquare() }
+        captureBtn = bigButton("Capture", GRAD) { captureNow() }
+        val resetBtn = bigButton("Reset grid", "#24203d") { overlay.resetSquare() }
         row.addView(resetBtn, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
         row.addView(captureBtn, LinearLayout.LayoutParams(0, dp(52), 2f))
         camPanel.addView(prompt)
@@ -154,7 +160,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             typeface = Typeface.DEFAULT_BOLD
         }
         val help = TextView(this).apply {
-            setTextColor(Color.parseColor("#a39e96")); textSize = 14f
+            setTextColor(Color.parseColor("#a29fc2")); textSize = 14f
             text = "• Wi-Fi: phone and laptop on the same network – found automatically.\n" +
                 "• USB (OTG cable/USB debugging): the laptop app runs adb reverse – found automatically.\n" +
                 "• Bluetooth: turn on Bluetooth tethering (PAN) between phone and laptop, then enter " +
@@ -166,8 +172,8 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
-        val go = bigButton("Connect", "#3a7bf0") { link.connectTo(hostEdit.text.toString()) }
-        val auto = bigButton("Search again", "#33312e") { link.autoConnect(prefs.getString("host", null)) }
+        val go = bigButton("Connect", GRAD) { link.connectTo(hostEdit.text.toString()) }
+        val auto = bigButton("Search again", "#24203d") { link.autoConnect(prefs.getString("host", null)) }
         connectPanel.addView(title)
         connectPanel.addView(help, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(12) })
         connectPanel.addView(hostEdit)
@@ -196,14 +202,26 @@ class MainActivity : AppCompatActivity(), Link.Listener {
 
     private fun smallButton(label: String, onClick: () -> Unit) = Button(this).apply {
         text = label; isAllCaps = false; textSize = 13f
-        setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor("#33312e"))
+        setTextColor(Color.WHITE)
+        background = GradientDrawable().apply {
+            setColor(Color.parseColor("#24203d")); cornerRadius = dp(10).toFloat()
+        }
         setOnClickListener { onClick() }
         minWidth = dp(64); minimumWidth = dp(64)
     }
 
     private fun bigButton(label: String, color: String, onClick: () -> Unit) = Button(this).apply {
         text = label; isAllCaps = false; textSize = 16f; typeface = Typeface.DEFAULT_BOLD
-        setTextColor(Color.WHITE); setBackgroundColor(Color.parseColor(color))
+        setTextColor(Color.WHITE)
+        background = if (color == GRAD) {
+            // purple-blue accent gradient #977DFF -> #0600AB
+            GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.parseColor("#977DFF"), Color.parseColor("#0600AB"))).apply {
+                cornerRadius = dp(12).toFloat()
+            }
+        } else {
+            GradientDrawable().apply { setColor(Color.parseColor(color)); cornerRadius = dp(12).toFloat() }
+        }
         setOnClickListener { onClick() }
     }
 
@@ -323,8 +341,12 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             prefs.edit().putString("host", if (host == "127.0.0.1") prefs.getString("host", "") else host).apply()
             showConnectPanel(false)
             ui.post {
-                val url = "http://$host:${Link.PORT}/phone"
-                if (web.url != url) web.loadUrl(url)
+                // the 3D view + buttons are bundled in the APK (assets/phone.html) and run locally;
+                // only the robot/solver API calls go to the laptop
+                if (loadedHost != host) {
+                    loadedHost = host
+                    web.loadUrl("file:///android_asset/phone.html#base=http://$host:${Link.PORT}")
+                }
             }
         } else if (host == null) {
             showConnectPanel(true)

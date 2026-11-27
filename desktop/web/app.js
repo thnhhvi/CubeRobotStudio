@@ -352,6 +352,9 @@
   $("plan-reset").onclick = () => post("/api/plan/reset").then(loadPlan);
   $("jog-go").onclick = () => post("/api/robot/jog", { seq: $("jog-free").value });
   $("btn-theme").onclick = () => document.body.classList.toggle("light");
+  $("btn-quit").onclick = () => {
+    if (confirm("Quit Cube Robot Studio? (the robot link closes)")) post("/api/quit").then(() => window.close());
+  };
 
   buildNet();
   refreshPorts();

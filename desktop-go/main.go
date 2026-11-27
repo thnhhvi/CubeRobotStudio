@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -26,7 +27,7 @@ func openBrowser(url string) {
 }
 
 func main() {
-	noBrowser := flag.Bool("no-browser", false, "do not open the UI in the browser")
+	noBrowser := flag.Bool("no-browser", false, "server only: do not open the UI window")
 	flag.Parse()
 
 	c := NewController()
@@ -54,7 +55,10 @@ func main() {
 	fmt.Println(" Close this window to quit.")
 	fmt.Println("==============================================")
 	if !*noBrowser {
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(300 * time.Millisecond)
+		if runWindow(url) {
+			os.Exit(0) // window closed -> quit (also stops the robot link)
+		}
 		openBrowser(url)
 	}
 	select {}

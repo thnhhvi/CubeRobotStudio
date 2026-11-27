@@ -389,7 +389,8 @@ func (q *RobotQueue) Start(cmd string) (time.Time, error) {
 	}
 	if !q.busySeen.Wait(5 * time.Second) {
 		q.idle.Set()
-		return time.Time{}, errors.New("Robot did not start: " + cmd)
+		return time.Time{}, errors.New("Robot did not answer " + cmd + " (no BUSY within 5 s). " +
+			"Is the right COM port selected and the Bluetooth module unplugged from RX/TX?")
 	}
 	return time.Now(), nil
 }

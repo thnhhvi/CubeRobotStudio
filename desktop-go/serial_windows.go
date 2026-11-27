@@ -5,8 +5,10 @@ package main
 import (
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -44,9 +46,13 @@ type commTimeouts struct {
 	WriteTotalTimeoutConstant   uint32
 }
 
+// The handle is synchronous: Windows serialises I/O on it, so a ReadFile that is
+// waiting would block WriteFile. Reads use a short timeout and every call holds io,
+// which hands the handle to a waiting writer between reads.
 type winSerial struct {
 	h      syscall.Handle
 	closed int32
+	io     sync.Mutex
 }
 
 func openSerial(port string, baud int) (*winSerial, error) {
@@ -71,7 +77,7 @@ func openSerial(port string, baud int) (*winSerial, error) {
 		syscall.CloseHandle(h)
 		return nil, fmt.Errorf("SetCommState: %v", e)
 	}
-	t := commTimeouts{0xFFFFFFFF, 0xFFFFFFFF, 100, 0, 1000}
+	t := commTimeouts{0xFFFFFFFF, 0xFFFFFFFF, 20, 0, 1000}
 	procSetCommTimeouts.Call(uintptr(h), uintptr(unsafe.Pointer(&t)))
 	procPurgeComm.Call(uintptr(h), 0x0008|0x0004) // RXCLEAR | TXCLEAR
 	return &winSerial{h: h}, nil
@@ -83,16 +89,22 @@ func (s *winSerial) Read(p []byte) (int, error) {
 			return 0, errors.New("closed")
 		}
 		var n uint32
-		if err := syscall.ReadFile(s.h, p, &n, nil); err != nil {
+		s.io.Lock()
+		err := syscall.ReadFile(s.h, p, &n, nil)
+		s.io.Unlock()
+		if err != nil {
 			return 0, err
 		}
 		if n > 0 {
 			return int(n), nil
 		}
+		time.Sleep(3 * time.Millisecond) // let a pending write in
 	}
 }
 
 func (s *winSerial) Write(p []byte) (int, error) {
+	s.io.Lock()
+	defer s.io.Unlock()
 	var n uint32
 	err := syscall.WriteFile(s.h, p, &n, nil)
 	return int(n), err

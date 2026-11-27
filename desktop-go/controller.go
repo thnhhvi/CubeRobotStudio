@@ -90,6 +90,7 @@ type Controller struct {
 	link         *Link
 	rq           *RobotQueue
 	captureCh    chan map[string]any
+	heard        *Event
 	timers       []*TLEvent
 	fireMu       sync.Mutex
 }
@@ -106,7 +107,7 @@ func NewController() *Controller {
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
 			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
-		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4)}
+		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
 	}
@@ -191,6 +192,7 @@ func (c *Controller) Snapshot() map[string]any {
 func (c *Controller) PushState() { c.bus.Emit(c.Snapshot()) }
 
 func (c *Controller) onLine(line string) {
+	c.heard.Set()
 	c.rq.OnLine(line)
 	if line == "IDLE" || line == "BUSY" {
 		c.PushState()
@@ -207,18 +209,33 @@ func (c *Controller) onLinkStatus(up bool, port string) {
 }
 
 func (c *Controller) Connect(port string) error {
+	c.heard.Clear()
 	if err := c.link.Connect(port); err != nil {
 		return err
-	}
-	if port != "SIMULATOR" {
-		time.Sleep(2 * time.Second) // Nano resets when the port opens
 	}
 	c.rq.mu.Lock()
 	c.rq.State = "IDLE"
 	c.rq.mu.Unlock()
 	c.rq.idle.Set()
-	c.link.Send("PING")
 	c.PushState()
+	if port == "SIMULATOR" {
+		c.link.Send("PING")
+		return nil
+	}
+	// The Nano resets when the port opens: wait for its banner, then PING.
+	c.logf("info", "Waiting for the Arduino to boot…")
+	c.heard.Wait(3 * time.Second)
+	for try := 0; try < 3; try++ {
+		c.heard.Clear()
+		c.link.Send("PING")
+		if c.heard.Wait(2 * time.Second) {
+			c.logf("info", "Arduino answered on %s", port)
+			return nil
+		}
+	}
+	c.logf("error", "No reply from the Arduino on %s. Check: the right COM port; the HC-06/HC-05 "+
+		"Bluetooth module unplugged from RX/TX while using USB; firmware flashed with CALIBRATE false; "+
+		"Serial Monitor in the Arduino IDE closed.", port)
 	return nil
 }
 

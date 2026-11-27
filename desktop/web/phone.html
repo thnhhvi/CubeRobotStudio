@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Cube Robot – phone</title>
 <link rel="stylesheet" href="style.css">
+<link rel="icon" href="icon.png">
 <style>
   html, body { height: 100%; overflow: hidden; }
   .ph { display: flex; flex-direction: column; height: 100%; }
@@ -21,7 +22,7 @@
 <body>
 <div class="ph">
   <div class="bar">
-    <b>Cube Robot</b>
+    <b style="display:flex;align-items:center;gap:8px"><img class="logo-img" src="icon.png" alt="">Cube Robot</b>
     <span class="big IDLE" id="rs" style="font-size:15px">…</span>
     <button class="danger" id="abort" style="padding:6px 12px">Abort</button>
   </div>
@@ -51,11 +52,19 @@
 <script>
 (() => {
   const $ = (id) => document.getElementById(id);
+  // When bundled inside the APK the page is local; the laptop address comes in #base=http://ip:8765
+  const BASE = (new URLSearchParams(location.hash.slice(1)).get("base") || "").replace(/\/$/, "");
   const NAMES = { W: "white", Y: "yellow", R: "red", O: "orange", B: "blue", G: "green" };
   const view = new Cube3D.CubeView($("cube3d"));
   let S = null, runMap = null, running = false;
-  const post = (p, b = {}) => fetch(p, { method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(b) }).then((r) => r.json()).then((j) => { if (j.ok === false) alert(j.error); return j; });
+  const post = (p, b = {}) => fetch(BASE + p, { method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(b) }).then((r) => r.json()).then((j) => { if (j.ok === false) toast(j.error); return j; });
+  function toast(msg) {
+    let t = document.getElementById("toast");
+    if (!t) { t = document.createElement("div"); t.id = "toast"; t.className = "toast"; document.body.appendChild(t); }
+    t.textContent = msg; t.classList.remove("hidden");
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add("hidden"), 3500);
+  }
 
   function track(cur) {
     const t = $("track"); t.innerHTML = "";
@@ -94,7 +103,7 @@
       if (view._sv) { view._sv = null; view.setPose([], 450); }
     }
   }
-  const es = new EventSource("/api/events");
+  const es = new EventSource(BASE + "/api/events");
   es.onmessage = (m) => {
     const ev = JSON.parse(m.data);
     if (ev.type === "state") onState(ev);

@@ -31,7 +31,7 @@ class QuadOverlay(ctx: Context) : View(ctx) {
     private val samplePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.YELLOW; strokeWidth = 2f; style = Paint.Style.STROKE; alpha = 200
     }
-    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#3a7bf0") }
+    private val handlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.parseColor("#977DFF") }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE; textSize = 34f; textAlign = Paint.Align.CENTER; isFakeBoldText = true
     }
