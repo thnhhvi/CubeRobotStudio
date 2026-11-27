@@ -68,11 +68,12 @@ Safety rules for every command the app sends (solve, scramble, scan):
 
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
-3. Each face is simply **rolled straight up** to the camera by the pair holding the cube, with no extra
-   gripper turn before it. In the scan pose the rolling pair stays **clamped at L** (its grippers end
-   horizontal) and the other pair waits **released at R** with its grippers vertical. Green, yellow, blue
-   and white are rolled up by front/back, red and orange by left/right. After Confirm the other pair clamps,
-   the rolling pair lets go and turns its grippers back to vertical (red/orange simply roll back).
+3. Each face is rolled straight up to the camera. In the scan pose the rolling pair is **clamped at L with
+   its grippers vertical (C)**, so they carry the cube like a platform, and the other pair waits **released
+   at R**, grippers vertical too. To end vertical after a 90° roll, the rolling pair first turns its
+   grippers the other way while released (the other pair holds the cube), clamps, and turns back while the
+   other pair lets go. Green, yellow, blue and white are rolled up by front/back, red and orange by
+   left/right (they are rolled back after Confirm).
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
 5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
@@ -101,7 +102,7 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 `tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
 clamping only square to a face. It enforces the safety rules above (no slider+spinner step, no clamp and
 release in one step, slider wait, an opposite pair always holding, paired spinners at most 45° per step). For scanning it also checks the scan
-pose (one pair clamped at L, the other released at R and vertical) and the second-look hand-off.
+pose (one pair clamped at L, the other released at R, every gripper vertical) and the second-look hand-off.
 
 ```
 cd desktop-go && cp -r ../desktop/web web && DUMP_SEQ=/tmp/seqs.json go test -run TestDumpSolveSeqs .

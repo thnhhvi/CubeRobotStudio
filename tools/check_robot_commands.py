@@ -150,8 +150,8 @@ class Robot:
             self.tilt[ax] -= step
 
     def scan_pose(self, label):
-        """face rolled straight up: nothing twisted or tilted; one opposite pair clamped at L,
-        the other pair released at R with its grippers vertical"""
+        """face rolled straight up: nothing twisted or tilted, every gripper vertical (the
+        clamped pair is a platform); one opposite pair clamped at L, the other released at R"""
         top = self.c[4]
         if any(self.tilt.values()) or any(a % 90 for a in self.twist.values()):
             self.err.append(f"{label}: cube or a layer is not square")
@@ -159,11 +159,11 @@ class Robot:
         ok = False
         for hold, free in (pairs, pairs[::-1]):
             if all(self.sl[k] == "L" for k in hold) and all(self.sl[k] == "R" for k in free) \
-                    and all(self.sp[k.lower()] == 0 for k in free):
+                    and all(self.sp[k.lower()] == 0 for k in "FBRL"):
                 ok = True
         if not ok:
             self.err.append(f"{label}: scan pose sliders {self.sl} grippers {self.sp} "
-                            "(want one pair at L, the other at R and vertical)")
+                            "(want one pair at L, the other at R, all grippers vertical)")
         return top
 
     def camera_face_color(self):

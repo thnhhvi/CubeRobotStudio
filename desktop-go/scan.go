@@ -34,29 +34,30 @@ func defaultPlan() ScanPlan {
 	// Sliders: L = clamped, C = touching, R = released. Spinners: L -90, l -45, C 0, r +45, R +90.
 	// {s} slider wait (a spinner only moves after the sliders stopped), {h} each 45 deg half
 	// of a paired spinner move (both grippers pass the same waypoint: they stay in sync).
-	// Each face is rolled straight up by the pair holding the cube - no extra gripper turn
-	// before the scan. Scan pose: the rolling pair stays clamped at L, the other pair is
-	// released at R with its grippers vertical. After Confirm the other pair clamps, the
-	// rolling pair lets go and turns its grippers back to vertical, then clamps again.
+	// Scan pose: the rolling pair clamped at L with its grippers VERTICAL (C), so they
+	// carry the cube like a platform; the other pair released at R, grippers vertical.
+	// To roll 90 deg and still end vertical, the rolling pair has to turn its grippers the
+	// other way first while it is released (the other pair holds the cube meanwhile).
 	a := func(id string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			Present: "RRLR{s}frbl{h}fRbL{h}",
-			Revert:  "RLLL{s}FRBR{s}frbl{h}fCfCbCbC{h}FLBL{s}",
+			Present: "FRBR{s}flbr{h}fLbR{h}FLBL{s}RRLR{s}flbr{h}fCfCbCbC{h}",
+			Revert:  "RLLL{s}",
 			Look2:   "RLLL{s}FRBR{s}", Look2Back: "FLBL{s}RRLR{s}",
 			View: []string{"z"}, Keep: []string{"z"}}
 	}
 	// left/right roll red (front) or orange (back) up, and roll it back afterwards
-	b := func(id, mid, end, view string) ScanStep {
+	b := func(id, mid, pre, bmid, bpre, view string) ScanStep {
 		return ScanStep{ID: id, Axis: "left/right",
-			Present: "FRBR{s}" + mid + "{h}" + end + "{h}",
-			Revert:  mid + "{h}rCrClClC{h}FLBL{s}",
-			Look2:   "FLBL{s}RRLR{s}", Look2Back: "RLLL{s}FRBR{s}",
+			Present: "RRLR{s}" + mid + "{h}" + pre + "{h}RLLL{s}FRBR{s}" + mid + "{h}rCrClClC{h}",
+			Revert: "FLBL{s}RRLR{s}" + bmid + "{h}" + bpre + "{h}RLLL{s}FRBR{s}" + bmid +
+				"{h}rCrClClC{h}FLBL{s}",
+			Look2: "FLBL{s}RRLR{s}", Look2Back: "RLLL{s}FRBR{s}",
 			View: []string{view}, Keep: []string{}}
 	}
-	return ScanPlan{CameraFace: "U", Version: 6, Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 7, Steps: []ScanStep{
 		a("A1"), a("A2"), a("A3"), a("A4"),
-		b("B1", "rrll", "rRlL", "x"),  // front (red) -> top
-		b("B2", "rllr", "rLlR", "x'"), // back (orange) -> top
+		b("B1", "rllr", "rLlR", "rrll", "rRlL", "x"),  // front (red) -> top
+		b("B2", "rrll", "rRlL", "rllr", "rLlR", "x'"), // back (orange) -> top
 	}}
 }
 
@@ -85,6 +86,13 @@ var oldDefaults = map[string]bool{
 	"FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}":     true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}":     true,
+	// v6 (1.8): direct roll, holders horizontal
+	"RRLR{s}frbl{h}fRbL{h}":                   true,
+	"RLLL{s}FRBR{s}frbl{h}fCfCbCbC{h}FLBL{s}": true,
+	"FRBR{s}rrll{h}rRlL{h}":                   true,
+	"rrll{h}rCrClClC{h}FLBL{s}":               true,
+	"FRBR{s}rllr{h}rLlR{h}":                   true,
+	"rllr{h}rCrClClC{h}FLBL{s}":               true,
 	// v5 (1.7): pre-turned grippers, holders at C
 	"FRBR{s}fLbR{d}FLBL{s}RRLR{s}fCfCbCbC{d}FCBC{s}": true,
 	"FLBL{s}RLLL{s}": true,
@@ -103,7 +111,7 @@ var oldDefaults = map[string]bool{
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 6 {
+	if p.Version >= 7 {
 		return p
 	}
 	def := map[string]ScanStep{}
@@ -117,7 +125,7 @@ func upgradePlan(p ScanPlan) ScanPlan {
 			p.Steps[i] = d
 		}
 	}
-	p.Version = 6
+	p.Version = 7
 	return p
 }
 
