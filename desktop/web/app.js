@@ -27,7 +27,8 @@
     if (j.ok === false) { toast(j.error, true); throw new Error(j.error); }
     return j;
   }
-  const post = (p, b = {}) => api(p, b);
+  // POST; on failure the error is already shown as a toast -> resolve to null
+  const post = (p, b = {}) => api(p, b).catch(() => null);
 
   function toast(msg, err) {
     const t = $("toast");
@@ -234,8 +235,7 @@
         plan.steps[i].revert = d.querySelector("input[data-k=revert]").value.trim();
         plan.steps[i].image_rot = +d.querySelector("select[data-k=image_rot]").value;
       });
-      await post("/api/plan", plan);
-      toast("Scan plan saved");
+      if (await post("/api/plan", plan)) toast("Scan plan saved");
     };
   }
 
@@ -362,13 +362,13 @@
   // ------------------------------------------------------------------ wiring
   $("btn-refresh").onclick = refreshPorts;
   $("btn-connect").onclick = () => (S.robot.connected ? post("/api/disconnect") :
-    post("/api/connect", { port: $("port").value }).then(() => toast("Connected")));
+    post("/api/connect", { port: $("port").value }).then((r) => r && toast("Connected")));
   $("btn-open").onclick = () => post("/api/robot/open");
   $("btn-close").onclick = () => post("/api/robot/close");
   $("btn-abort").onclick = () => post("/api/robot/abort");
   $("btn-scramble").onclick = () => post("/api/scramble", { n: 22 });
   $("btn-solve").onclick = () => post("/api/execute");
-  $("btn-calc").onclick = () => post("/api/solve").then(() => toast("Solution ready"));
+  $("btn-calc").onclick = () => post("/api/solve").then((r) => r && toast("Solution ready"));
   $("btn-scan").onclick = () => post("/api/scan/start");
   $("btn-reset").onclick = () => post("/api/reset");
   $("speed").oninput = (e) => ($("speed-val").textContent = e.target.value + " ms");

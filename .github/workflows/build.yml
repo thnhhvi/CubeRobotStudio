@@ -39,11 +39,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Solver / scan-mapping / simulated-robot tests
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: Solver / scan-mapping tests (Python prototype)
         working-directory: desktop
         run: |
           python -m pip install numpy pyserial pytest
           python -m pytest -q tests
+      - name: App flow with race detector (scan, retake, confirm, solve, abort, close)
+        working-directory: desktop-go
+        run: |
+          rm -rf web && cp -r ../desktop/web web
+          go test -race -count=1 ./...
+      - name: Physical simulation of the robot commands (solve + scan)
+        working-directory: desktop-go
+        run: |
+          DUMP_SEQ=/tmp/seqs.json DUMP_PLAN=/tmp/plan.json go test -count=1 -run 'TestDump' .
+          python ../tools/check_robot_commands.py solve /tmp/seqs.json
+          python ../tools/check_robot_commands.py scan /tmp/plan.json
 
   android-apk:
     runs-on: ubuntu-latest

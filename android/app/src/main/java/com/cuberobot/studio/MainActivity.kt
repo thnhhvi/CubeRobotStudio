@@ -79,7 +79,6 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     @Volatile private var waitingCapture = false
     private var promptIndex = -1
     private var userCamera = false
-    private var autoCaptureRunnable: Runnable? = null
 
     private val prefs by lazy { getSharedPreferences("cuberobot", MODE_PRIVATE) }
 
@@ -413,7 +412,6 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         }
         waitingCapture = false
         captureBtn.isEnabled = false
-        autoCaptureRunnable?.let { ui.removeCallbacks(it) }
         val vw = previewView.width
         val vh = previewView.height
         analysisExec.execute {
@@ -433,7 +431,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                         prompt.text = "Captured – checking…"
                     } else {
                         waitingCapture = true
-                        prompt.text = "Capture failed: ${res?.optString("error") ?: "no connection"} – tap Capture"
+                        prompt.text = "Capture failed: ${res?.optString("error") ?: "no connection"} – tap Scan face"
                     }
                 }
             }
@@ -508,6 +506,23 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                     val names = mapOf("W" to "white", "Y" to "yellow", "R" to "red", "O" to "orange",
                         "B" to "blue", "G" to "green")
                     setReady(true, names[st?.optString("front")] ?: "", names[st?.optString("top")] ?: "")
+                }
+                // joined (or reconnected) while the laptop already waits for a face / a confirm
+                if (scanning && phase == "capture" && !waitingCapture && !reviewing && !scanReady) ui.post {
+                    val names = mapOf("W" to "white", "Y" to "yellow", "R" to "red", "O" to "orange",
+                        "B" to "blue", "G" to "green")
+                    promptIndex = sc?.optInt("index") ?: 0
+                    waitingCapture = true
+                    setReview(false)
+                    showCamera(true)
+                    captureBtn.isEnabled = true
+                    prompt.text = "Aim at the ${(names[sc?.optString("color")] ?: "").uppercase()} face " +
+                        "(${promptIndex + 1}/${sc?.optInt("total") ?: 6}), then tap Scan face"
+                }
+                if (scanning && phase == "confirm" && !reviewing) ui.post {
+                    showCamera(true)
+                    setReview(true)
+                    prompt.text = "Check the colours on the laptop, then Confirm or Retake"
                 }
                 if (!scanning && (waitingCapture || reviewing || scanReady)) ui.post {
                     waitingCapture = false

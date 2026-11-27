@@ -148,6 +148,9 @@ func (c *Controller) logf(level, f string, a ...any) {
 	c.bus.Emit(map[string]any{"type": "log", "level": level, "msg": msg})
 }
 
+// cfg returns a copy of the settings (safe from any goroutine).
+func (c *Controller) cfg() Settings { c.mu.Lock(); defer c.mu.Unlock(); return c.settings }
+
 func (c *Controller) saveSettings() {
 	b, _ := json.MarshalIndent(c.settings, "", "  ")
 	os.WriteFile(filepath.Join(c.cfgDir, "settings.json"), b, 0o644)
@@ -191,7 +194,7 @@ func (c *Controller) Snapshot() map[string]any {
 		"type": "state", "colors": c.colors, "state_known": c.stateKnown, "settings": c.settings,
 		"speed_range": []int{speedMin, speedMax},
 		"robot": map[string]any{"connected": c.link.Connected(), "port": c.link.Port(),
-			"state": c.rq.GetState(), "orientation": c.rq.Orientation},
+			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation()},
 		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": c.solutionInfo,
 		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": c.thumbs,
 		"scanned": append([]string{}, c.scanned...), "phones": phones,
@@ -308,7 +311,7 @@ func (c *Controller) CloseArms() error {
 			c.rq.QuerySliders() // positions unknown (e.g. after Abort): ask the Arduino
 			st = c.rq.SliderStates()
 		}
-		seq := closeSequence(st, c.settings.Delay, c.settings.CloseSpeedPct, c.settings.ClosePauseMs)
+		seq := closeSequence(st, c.cfg().Delay, c.cfg().CloseSpeedPct, c.cfg().ClosePauseMs)
 		return c.rq.Run("SEQ " + seq)
 	})
 }
@@ -354,9 +357,9 @@ func (c *Controller) Jog(seq string) error {
 	if err := c.requireRobot(); err != nil {
 		return err
 	}
-	d := c.settings.Delay
-	if c.settings.ScanDelayMin > d {
-		d = c.settings.ScanDelayMin
+	d := c.cfg().Delay
+	if c.cfg().ScanDelayMin > d {
+		d = c.cfg().ScanDelayMin
 	}
 	s := fillSeq(seq, d)
 	return c.startTask("jog", func() error { return c.rq.Run("SEQ " + s) })
@@ -461,7 +464,7 @@ func (c *Controller) SetColors(colors string) error {
 }
 
 func (c *Controller) Reset() error {
-	return c.SetColors(solvedColors(c.settings.Front[0], c.settings.Top[0]))
+	return c.SetColors(solvedColors(c.cfg().Front[0], c.cfg().Top[0]))
 }
 
 // ---------------------------------------------------------------- solving
@@ -561,11 +564,11 @@ func (c *Controller) Scramble(n int) error {
 }
 
 func (c *Controller) runMoves(moves []string, isSolve bool) error {
-	d := c.settings.Delay
+	d := c.cfg().Delay
 	rm := toRobotMoves(moves)
 	c.bus.Emit(map[string]any{"type": "run", "moves": moves, "solve": isSolve, "delay": d})
 	idx := 0
-	for _, b := range buildSeqBatches(rm, c.rq.Orientation, d) {
+	for _, b := range buildSeqBatches(rm, c.rq.GetOrientation(), d) {
 		events, _, total := buildTimeline(b.Moves, b.StartOrient, d)
 		tBusy, err := c.rq.Start("SEQ " + b.Seq)
 		if err != nil {
@@ -579,9 +582,9 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 			return errors.New("aborted")
 		}
 		c.flushTimers()
-		c.rq.Orientation = b.EndOrient
+		c.rq.SetOrientation(b.EndOrient)
 	}
-	if c.settings.ReturnHome && c.rq.Orientation == INVERT {
+	if c.cfg().ReturnHome && c.rq.GetOrientation() == INVERT {
 		tBusy, err := c.rq.Start("SEQ " + rotateCubeSeq(NORMAL, d))
 		if err != nil {
 			return err
@@ -589,7 +592,7 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 		c.schedule([]*TLEvent{{At: 100 + 4*d, Dur: d, Kind: "pose", Pose: "NORMAL"}}, tBusy, idx)
 		c.rq.WaitIdle(30 * time.Second)
 		c.flushTimers()
-		c.rq.Orientation = NORMAL
+		c.rq.SetOrientation(NORMAL)
 	}
 	if isSolve {
 		c.mu.Lock()
@@ -691,15 +694,15 @@ func (c *Controller) StartScan() error {
 }
 
 func (c *Controller) scanRun(steps []WalkStep) error {
-	d := c.settings.Delay
-	if c.settings.ScanDelayMin > d {
-		d = c.settings.ScanDelayMin
+	d := c.cfg().Delay
+	if c.cfg().ScanDelayMin > d {
+		d = c.cfg().ScanDelayMin
 	}
 	useRobot := c.link.Connected()
 	if !useRobot {
 		c.logf("info", "Robot not connected: scanning in manual mode (turn the cube by hand)")
 	}
-	centers, _ := centerColors(c.settings.Front[0], c.settings.Top[0])
+	centers, _ := centerColors(c.cfg().Front[0], c.cfg().Top[0])
 	s := c.scan
 	// scan mode is armed: wait until the user presses "Start scanning"
 	names := []string{}
@@ -707,7 +710,7 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 		names = append(names, colorNames[w.Color])
 	}
 	c.bus.Emit(map[string]any{"type": "scan_ready", "total": len(steps),
-		"front": colorNames[c.settings.Front[0]], "top": colorNames[c.settings.Top[0]], "order": names})
+		"front": colorNames[c.cfg().Front[0]], "top": colorNames[c.cfg().Top[0]], "order": names})
 	c.PushState()
 	if ok := <-c.beginCh; !ok || s.Done {
 		return c.scanFail(errors.New("aborted"))
@@ -736,10 +739,12 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			}
 			c.bus.Emit(map[string]any{"type": "scan_prompt", "index": i, "total": len(steps),
 				"color": string(w.Color), "color_name": colorNames[w.Color], "auto": false,
-				"settle_ms": c.settings.CaptureSettleMs, "manual_hint": hint})
+				"settle_ms": c.cfg().CaptureSettleMs, "manual_hint": hint})
 			c.PushState()
+			stopHold := c.holdPowered(useRobot)
 			data := <-c.captureCh
 			if data == nil || s.Done {
+				stopHold()
 				return c.scanFail(errors.New("aborted"))
 			}
 			tiles := data["tiles"].([]any)
@@ -774,6 +779,7 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 				"thumb": th, "logo": logo})
 			c.PushState()
 			act := <-c.confirmCh
+			stopHold()
 			if act == "" || s.Done {
 				return c.scanFail(errors.New("aborted"))
 			}
@@ -937,6 +943,40 @@ func (c *Controller) Pair(code string) error {
 	return nil
 }
 
+// holdPowered keeps the servos powered while the cube is lifted for the camera: the
+// firmware detaches every servo 3 s after a command (no holding torque), so the
+// current slider positions are re-sent every 2 s until stop is closed.
+func (c *Controller) holdPowered(useRobot bool) (stop func()) {
+	done := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		if !useRobot {
+			return
+		}
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				st := c.rq.SliderStates()
+				seq := ""
+				for _, s := range []byte("FBRL") {
+					if v, ok := st[s]; ok {
+						seq += string(s) + string(v)
+					}
+				}
+				if seq != "" && c.rq.GetState() == "IDLE" {
+					c.rq.RunQuiet("SEQ " + seq)
+				}
+			}
+		}
+	}()
+	return func() { close(done); <-finished }
+}
+
 // ConfirmScan answers the review step of the current face: "confirm" or "retake".
 func (c *Controller) ConfirmScan(action string) error {
 	c.mu.Lock()
@@ -978,7 +1018,16 @@ func (c *Controller) TriggerCapture() error {
 	if !ok {
 		return errors.New("Not waiting for a face to be scanned")
 	}
-	if len(c.Snapshot()["phones"].([]any)) == 0 {
+	recent := false
+	now := float64(time.Now().UnixNano()) / 1e9
+	c.mu.Lock()
+	for _, p := range c.phones {
+		if seen, _ := p["seen"].(float64); now-seen < 15 {
+			recent = true
+		}
+	}
+	c.mu.Unlock()
+	if !recent {
 		return errors.New("No phone connected - pair the phone first")
 	}
 	c.bus.Emit(map[string]any{"type": "capture_now"})

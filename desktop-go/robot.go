@@ -537,14 +537,32 @@ func (q *RobotQueue) OnLine(line string) {
 
 func (q *RobotQueue) GetState() string { q.mu.Lock(); defer q.mu.Unlock(); return q.State }
 
-func (q *RobotQueue) Start(cmd string) (time.Time, error) {
+func (q *RobotQueue) GetOrientation() int  { q.mu.Lock(); defer q.mu.Unlock(); return q.Orientation }
+func (q *RobotQueue) SetOrientation(o int) { q.mu.Lock(); q.Orientation = o; q.mu.Unlock() }
+
+func (q *RobotQueue) Start(cmd string) (time.Time, error) { return q.start(cmd, true) }
+
+// RunQuiet sends a command without logging it (keep-alive).
+func (q *RobotQueue) RunQuiet(cmd string) error {
+	if _, err := q.start(cmd, false); err != nil {
+		return err
+	}
+	if !q.idle.Wait(10 * time.Second) {
+		return errors.New("Robot timed out")
+	}
+	return nil
+}
+
+func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	if q.aborted.IsSet() {
 		return time.Time{}, errors.New("aborted")
 	}
 	q.idle.Wait(120 * time.Second)
 	q.busySeen.Clear()
 	q.idle.Clear()
-	q.emit(map[string]any{"type": "log", "level": "tx", "msg": cmd})
+	if logIt {
+		q.emit(map[string]any{"type": "log", "level": "tx", "msg": cmd})
+	}
 	if err := q.link.Send(cmd); err != nil {
 		q.idle.Set()
 		return time.Time{}, err
