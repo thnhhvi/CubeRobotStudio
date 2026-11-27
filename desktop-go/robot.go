@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 )
@@ -71,8 +72,30 @@ func rotateCubeSeq(o, d int) string {
 // timed path over 70% of the step, the rest lets them settle).
 func spinWait(d int) int    { return maxInt(d, 300) }
 func slider1Wait(d int) int { return maxInt(d, 400) }
-func sliderWait(d int) int  { return maxInt(d, 600) } // two or more sliders
-func pairWait(d int) int    { return maxInt(2*d, 600) }
+func sliderWait(d int) int  { return maxInt(d, syncTime()) }   // two or more sliders
+func pairWait(d int) int    { return maxInt(2*d, syncTime()) } // two spinners
+
+// syncMs is the time of one synced (paired) step, the "Sync move time" setting. The
+// servos glide over 70% of it; it must be slow enough for both servos to follow the
+// path under load, or the faster one runs ahead again.
+var syncMs atomic.Int32
+
+func syncTime() int {
+	if v := int(syncMs.Load()); v >= 600 {
+		return v
+	}
+	return 600
+}
+
+func setSyncTime(ms int) {
+	if ms < 600 {
+		ms = 600
+	}
+	if ms > 2500 {
+		ms = 2500
+	}
+	syncMs.Store(int32(ms))
+}
 
 func maxInt(a, b int) int {
 	if a > b {

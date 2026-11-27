@@ -27,6 +27,7 @@ type Settings struct {
 	ReturnHome      bool    `json:"return_home"`
 	LowPower        bool    `json:"low_power"`
 	FlipGripUs      int     `json:"flip_grip_us"` // H clamp: this much harder than L while flipping
+	SyncMs          int     `json:"sync_ms"`      // time of one synced step (paired servos)
 }
 
 // ---------------------------------------------------------------- bus
@@ -117,7 +118,7 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
@@ -133,6 +134,7 @@ func NewController() *Controller {
 	c.link.onDrop = c.onDrop
 	c.rq = NewRobotQueue(c.link, c.bus.Emit)
 	c.rq.SetLowPower(c.settings.LowPower)
+	setSyncTime(c.settings.SyncMs)
 	go func() {
 		t0 := time.Now()
 		c.logf("info", "Building solver tables…")
@@ -480,6 +482,14 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.ReturnHome, _ = v.(bool)
 		case "low_power":
 			s.LowPower, _ = v.(bool)
+		case "sync_ms":
+			s.SyncMs = int(toFloat(v))
+			if s.SyncMs < 600 {
+				s.SyncMs = 600
+			}
+			if s.SyncMs > 2500 {
+				s.SyncMs = 2500
+			}
 		case "flip_grip_us":
 			s.FlipGripUs = int(toFloat(v))
 			if s.FlipGripUs < 0 {
@@ -506,6 +516,7 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.saveSettings()
 	c.mu.Unlock()
 	c.rq.SetLowPower(s.LowPower)
+	setSyncTime(s.SyncMs)
 	if grip {
 		c.rq.SetGrip(s.FlipGripUs)
 	}
@@ -805,6 +816,10 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	useRobot := c.link.Connected()
 	if !useRobot {
 		c.logf("info", "Robot not connected: scanning in manual mode (turn the cube by hand)")
+	} else if c.rq.Glide() {
+		c.logf("info", "Synced moves on (firmware glide), %d ms per paired step", syncTime())
+	} else {
+		c.logf("error", "Synced moves are OFF: "+glideHelp)
 	}
 	s := c.scan
 	// scan mode is armed: wait until the user presses "Start scanning"

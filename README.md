@@ -49,16 +49,19 @@ Slider states: **H = clamped a little harder than L** (only while the cube is fl
 Safety rules for every command the app sends (solve, scramble, scan):
 
 * **One type at a time.** A step moves sliders or spinners, never both, and the next step only starts
-  when this one is done: at least **400 ms** after one slider, **600 ms** after two or more sliders,
-  **300 ms** after one spinner and **600 ms** after two spinners turning together (or the speed setting,
-  if slower).
+  when this one is done: at least **400 ms** after one slider and **300 ms** after one spinner (or the
+  speed setting, if slower). Steps where two or more servos move together take the **Sync move time**
+  (Robot panel, default 1000 ms, at least 600 ms).
 * **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
 * **Paired servos in sync.** Two spinners turning together (cube flips and scan rolls) are one 90° step, and
   so are two or more sliders moving together (clamp/release of a pair, Open, Close). With the firmware in
   `arduino/Arduino` (release: `CubeRobotFirmware.zip`) they glide along one smooth, timed path over 70% of
-  the step and settle in the rest, so neither runs ahead (no single face turned, no cube pushed off centre). The stock
+  the step and settle in the rest, so neither runs ahead (no single face turned, no cube pushed off centre).
+  If one servo still lags, make the Sync move time longer, and power the servos from an external 5–6 V
+  supply: two servos starting together under load pull the Arduino's USB 5 V down, and a starved servo
+  moves slower than its partner. The stock
   firmware jumps at full servo speed; the app then shows "stock firmware (spinners not synced)".
 * **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H, and eases
   back to L once the other pair holds again.

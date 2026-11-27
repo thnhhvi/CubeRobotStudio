@@ -210,6 +210,7 @@
     if (document.activeElement !== $("speed")) $("speed").value = S.settings.delay;
     $("speed-val").textContent = S.settings.delay + " ms";
     $("low-power").checked = !!S.settings.low_power;
+    if (document.activeElement !== $("sync-ms")) $("sync-ms").value = S.settings.sync_ms || 1000;
     if (document.activeElement !== $("flip-grip")) $("flip-grip").value = S.settings.flip_grip_us ?? 40;
     $("pose-badge").textContent = S.pose === "INVERT" ? "flipped (U/D on arms)" : "home pose";
     const w = (S.warnings || []).map((x) => `<div class="warn">⚠ ${x}</div>`).join("");
@@ -399,6 +400,7 @@
   $("speed").oninput = (e) => ($("speed-val").textContent = e.target.value + " ms");
   $("speed").onchange = (e) => post("/api/settings", { delay: +e.target.value });
   $("low-power").onchange = (e) => post("/api/settings", { low_power: e.target.checked });
+  $("sync-ms").onchange = (e) => post("/api/settings", { sync_ms: Number(e.target.value) || 1000 });
   $("flip-grip").onchange = (e) => post("/api/settings", { flip_grip_us: Number(e.target.value) || 0 });
   $("pb-first").onclick = () => previewTo(0);
   $("pb-prev").onclick = () => previewTo(pbPos - 1);

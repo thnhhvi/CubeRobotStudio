@@ -50,7 +50,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), Link.Listener {
     companion object {
         const val GRAD = "gradient"
-        const val VERSION = "2.2"
+        const val VERSION = "2.3"
     }
     private var loadedHost: String? = null
 
