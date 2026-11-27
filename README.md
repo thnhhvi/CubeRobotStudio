@@ -58,8 +58,8 @@ Safety rules for every command the app sends (solve, scramble, scan):
   grip, default 40 µs past L), the other pair lets go, and once the roll is done the other pair clamps and
   the carriers ease back to L.
 
-* **Open:** all sliders to R.
-* **Close:** front and back sliders to L, then right and left to L (`SEQ FLBL600RLLL600`).
+* **Open:** right and left sliders to R, a **500 ms** pause, then front and back (`SEQ RRLR500FRBR`).
+* **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
 * **Solve / Scramble:** the app sends its own servo steps as `SEQ` commands (never more than 250
   characters; firmware buffer 256), with every hold at **L**.
 

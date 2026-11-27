@@ -18,7 +18,7 @@ const (
 	NORMAL   = 0 // home orientation (orientations: see planner.go)
 	moveBuf  = 60
 	seqBuf   = 250
-	openSeq  = "RRLRFRBR"    // all sliders R: released, cube can be taken out
+	openSeq  = "RRLR500FRBR" // right + left release, 500 ms, then front + back (cube can be taken out)
 	closeSeq = "FLBL500RLLL" // front + back clamp (L), 500 ms, then right + left
 )
 
