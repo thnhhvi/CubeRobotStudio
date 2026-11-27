@@ -78,6 +78,20 @@ void APILoop()
         Serial.println("SEQ <string>|C");
         Serial.println("MOVE <delay_ms> <orientation> <moves>");
         Serial.println("GLIDE [0|1]");
+        Serial.println("GRIP [us]");
+        return;
+    }
+
+    // --- GRIP (Cube Robot Studio): extra press of the H state ---
+    if (strcmp(cmd, "GRIP") == 0)
+    {
+        if (tokenCount == 2)
+        {
+            int v = atoi(tokens[1]);
+            seqManager.hardGripUs = v < 0 ? 0 : (v > 150 ? 150 : v);
+        }
+        Serial.print("OK GRIP ");
+        Serial.println(seqManager.hardGripUs);
         return;
     }
 
@@ -174,6 +188,7 @@ void APILoop()
             case STATE_C: Serial.println('C'); break;
             case STATE_r: Serial.println('r'); break;
             case STATE_l: Serial.println('l'); break;
+            case STATE_H: Serial.println('H'); break;
             default: Serial.println("ERR state"); break;
         }
         return;

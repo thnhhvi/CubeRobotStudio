@@ -54,38 +54,30 @@ func orientationAfter(ch byte, cur int) int {
 // rotateCubeSeq flips the cube between NORMAL and INVERT (same steps as the
 // firmware's rotateCube) but every slider that holds the cube ends at L (clamped).
 func rotateCubeSeq(o, d int) string {
-	pre, mid := "fLbR", "flbr"
+	pre := "fLbR"
 	if o == INVERT {
-		pre, mid = "fRbL", "frbl"
+		pre = "fRbL"
 	}
-	s, h := sliderWait(d), halfStep(d)
-	// clamp R/L, then release F/B (never in the same instant: R/L hold the cube),
-	// pre-turn the free F/B grippers, clamp F/B, release R/L, roll, re-clamp R/L.
-	// Two spinners turning together always pass a 45 deg waypoint, so neither can
-	// run ahead of the other by more than 45 deg (they stay in sync).
-	return fmt.Sprintf("RLLL%dFRBR%d%s%d%s%dFLBL%dRRLR%d%s%dfCfCbCbC%dRLLL%d",
-		s, s, mid, h, pre, h, s, s, mid, h, h, s)
+	s, p := sliderWait(d), pairWait(d)
+	// (R/L are clamped at L between moves.) Release F/B, pre-turn the free F/B grippers,
+	// clamp F/B HARD (H), release R/L, roll the cube, clamp R/L, then ease F/B back to L.
+	// Every step is either sliders or spinners and waits for the other type to finish.
+	return fmt.Sprintf("FRBR%d%s%dFHBH%dRRLR%dfCfCbCbC%dRLLL%dFLBL%d", s, pre, p, s, s, p, s, s)
 }
 
-// halfStep is the wait for each 45 deg half of a paired spinner move. At least 300 ms:
-// with the GLIDE firmware both grippers glide over 85% of it (~45 deg in 255 ms, slow
-// enough for the servos to follow the timed path), without it each half still finishes
-// before the next one starts.
-func halfStep(d int) int {
-	if h := d/2 + 40; h > 300 {
-		return h
-	}
-	return 300
-}
+// Minimum times (ms) so a step has really finished before the next one starts, even
+// at the fastest speed setting: a 90 deg spinner turn, a slider stroke, and a paired
+// spinner move (two spinners together; the GLIDE firmware moves them along one timed
+// path over 70% of it, the rest lets them settle).
+func spinWait(d int) int   { return maxInt(d, 300) }
+func sliderWait(d int) int { return maxInt(d, 400) }
+func pairWait(d int) int   { return maxInt(2*d, 600) }
 
-// sliderWait is how long a slider group gets before any spinner may move: sliders
-// travel further than a gripper quarter turn, so fast speeds would let a spinner start
-// while its slider is still moving. Every group is either sliders or spinners, never both.
-func sliderWait(d int) int {
-	if d < 250 {
-		return 250
+func maxInt(a, b int) int {
+	if a > b {
+		return a
 	}
-	return d
+	return b
 }
 
 // faceSeq turns one face (robot char, e.g. 'U' or 'u') with the arm that holds it;
@@ -110,10 +102,10 @@ func faceSeq(ch byte, orient, d int) string {
 	}
 	slider := string(unicode.ToUpper(rune(arm)))
 	a := string(arm)
-	sw := sliderWait(d)
+	sw, sp := sliderWait(d), spinWait(d)
 	// turn (all four arms clamped), release this arm only (the other pair still holds),
 	// gripper back to vertical, re-clamp.
-	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, d, slider, sw, a, a, d, slider, sw)
+	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, sp, slider, sw, a, a, sp, slider, sw)
 }
 
 // parseSeq returns the (servo, state) pairs of a SEQ string in order (delays skipped).
@@ -189,10 +181,9 @@ func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
 			if no == INVERT {
 				p = "INVERT"
 			}
-			sw := sliderWait(d)
-			h := halfStep(d)
-			ev = append(ev, &TLEvent{At: t + 4*sw + 2*h, Dur: 2 * h, Kind: "pose", Pose: p})
-			t += 5*sw + 4*h
+			sw, pw := sliderWait(d), pairWait(d)
+			ev = append(ev, &TLEvent{At: t + 3*sw + pw, Dur: pw, Kind: "pose", Pose: p})
+			t += 5*sw + 2*pw
 			orient = no
 		}
 		f := string(unicode.ToUpper(rune(ch)))
@@ -200,8 +191,8 @@ func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
 		if unicode.IsLower(rune(ch)) {
 			mv = f + "'"
 		}
-		ev = append(ev, &TLEvent{At: t, Dur: d, Kind: "move", Move: mv})
-		t += 2*d + 2*sliderWait(d)
+		ev = append(ev, &TLEvent{At: t, Dur: spinWait(d), Kind: "move", Move: mv})
+		t += 2*spinWait(d) + 2*sliderWait(d)
 	}
 	return ev, orient, t
 }
@@ -378,6 +369,12 @@ func (s *Simulator) receive(line string) {
 	switch parts[0] {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
+	case "GRIP":
+		g := "40"
+		if len(parts) == 2 {
+			g = parts[1]
+		}
+		s.later("OK GRIP "+g, 10*time.Millisecond)
 	case "GLIDE":
 		if len(parts) == 2 {
 			s.glide = parts[1] != "0"
@@ -532,6 +529,9 @@ func (q *RobotQueue) OnLine(line string) {
 		q.calibFW = false
 		q.mu.Unlock()
 	}
+	if strings.HasPrefix(line, "OK GRIP") || line == "ERR cmd: GRIP" {
+		return // answer to "GRIP <us>"
+	}
 	if strings.HasPrefix(line, "OK GLIDE") || line == "ERR cmd: GLIDE" {
 		select { // reply to "GLIDE 1" (stock firmware: unknown command)
 		case q.glideCh <- strings.HasPrefix(line, "OK GLIDE 1"):
@@ -539,7 +539,7 @@ func (q *RobotQueue) OnLine(line string) {
 		}
 		return
 	}
-	if len(line) == 1 && strings.Contains("RCLrl", line) {
+	if len(line) == 1 && strings.Contains("RCLrlH", line) {
 		select { // reply to "STATUS <servo>"
 		case q.statusCh <- line[0]:
 		default:
@@ -597,9 +597,12 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	q.idle.Clear()
 	q.mu.Lock()
 	low := q.lowPower
+	glide := q.glide
 	q.mu.Unlock()
 	if low && strings.HasPrefix(cmd, "SEQ ") && cmd != "SEQ C" {
 		cmd = "SEQ " + softenHolds(cmd[4:])
+	} else if !glide && strings.HasPrefix(cmd, "SEQ ") {
+		cmd = "SEQ " + noHardGrip(cmd[4:]) // stock firmware has no H state
 	}
 	if logIt {
 		q.emit(map[string]any{"type": "log", "level": "tx", "msg": cmd})
@@ -650,6 +653,22 @@ func (q *RobotQueue) SetLowPower(on bool) { q.mu.Lock(); q.lowPower = on; q.mu.U
 
 // softenHolds turns every slider clamp (L) into a light hold (C); delays and spinner
 // states are kept. Used in low-power mode so the servos draw far less current.
+// noHardGrip turns the hard clamp H into L (for the stock firmware).
+func noHardGrip(seq string) string {
+	b := []byte(seq)
+	for i := 0; i+1 < len(b); {
+		if b[i] >= '0' && b[i] <= '9' {
+			i++
+			continue
+		}
+		if strings.IndexByte("FBRL", b[i]) >= 0 && b[i+1] == 'H' {
+			b[i+1] = 'L'
+		}
+		i += 2
+	}
+	return string(b)
+}
+
 func softenHolds(seq string) string {
 	var b strings.Builder
 	for i := 0; i < len(seq); {
@@ -660,7 +679,7 @@ func softenHolds(seq string) string {
 		}
 		if i+1 < len(seq) {
 			s, st := seq[i], seq[i+1]
-			if strings.IndexByte("FBRL", s) >= 0 && st == 'L' {
+			if strings.IndexByte("FBRL", s) >= 0 && (st == 'L' || st == 'H') {
 				st = 'C'
 			}
 			b.WriteByte(s)
@@ -726,6 +745,13 @@ func (q *RobotQueue) EnableGlide() bool {
 	q.glide = ok
 	q.mu.Unlock()
 	return ok
+}
+
+// SetGrip sends how much harder than L the H clamp presses (GLIDE firmware only).
+func (q *RobotQueue) SetGrip(us int) {
+	if q.Glide() {
+		q.link.Send(fmt.Sprintf("GRIP %d", us))
+	}
 }
 
 func (q *RobotQueue) Glide() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.glide }

@@ -60,9 +60,12 @@ public:
     CubeOrientation orientation = ORIENT_NORMAL;    // To keep track of which side is up
 
     // GLIDE 1 (Cube Robot Studio): when two or more spinners are commanded in the same
-    // step, they glide to their targets over 85% of the delay that follows the step, so
+    // step, they glide to their targets over 70% of the delay that follows the step, so
     // they move in sync (a lagging spinner would twist one layer instead of the cube).
     bool glide = false;
+
+    // GRIP <us>: how much further than L the "H" state presses (default HARD_GRIP_US)
+    int hardGripUs = HARD_GRIP_US;
 
 private:
     int busy = 0;   // 0 = idle, 1 = busy with SEQ, 2 = busy with MOVE

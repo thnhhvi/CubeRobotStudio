@@ -16,6 +16,7 @@ static bool parseServoState(char c, ServoState& state)
         case 'R': state = STATE_R; return true;
         case 'r': state = STATE_r; return true;
         case 'l': state = STATE_l; return true;
+        case 'H': state = STATE_H; return true;
         default: return false;
     }
 }
@@ -108,7 +109,8 @@ int SequenceManager::executeUntilDelay()
 
 int SequenceManager::handleSequence()
 {
-    // Paired spinners in this step glide over 85% of the following delay
+    // Paired spinners in this step glide over 70% of the following delay (the rest lets the
+    // servos settle before the next step starts)
     unsigned int glideMs = 0;
     if (glide)
     {
@@ -128,7 +130,7 @@ int SequenceManager::handleSequence()
             i += 2;
         }
         if (spinners >= 2 && isdigit(activeSequence[i]))
-            glideMs = (unsigned int)(strtoul(&activeSequence[i], NULL, 10) * 85UL / 100UL);
+            glideMs = (unsigned int)(strtoul(&activeSequence[i], NULL, 10) * 70UL / 100UL);
     }
 
     // Execute until we hit a delay or end of sequence

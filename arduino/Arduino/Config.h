@@ -26,3 +26,8 @@
 // (Realistically, we will almost never find a perfect 20-move solution, unless its an easy scramble)
 // But, based on real testing, 32 moves were exceeded, so make it larger.
 #define MOVE_BUFFER_SIZE 64
+
+// Cube Robot Studio: state "H" clamps a slider this many microseconds further than its L
+// position (pressing a little harder while the cube is flipped). The app can change it at
+// runtime with "GRIP <us>" (0..150).
+#define HARD_GRIP_US 40

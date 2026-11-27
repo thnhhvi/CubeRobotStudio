@@ -11,8 +11,9 @@ group by group (commands between two delays run at the same time):
   * a slider may only clamp square to its face/layer (gripper angle - layer twist = 0/+-90),
   * no layer may turn while a layer on another axis is twisted (the cube would jam),
   * a group moves sliders OR spinners, never both, and never clamps one slider while
-    releasing another; a slider group must be followed by >= 250 ms before the next group,
-  * spinners turning together move at most 45 deg per group (a waypoint keeps them in sync),
+    releasing another; the next group only starts when this one is done: >= 400 ms after
+    sliders, >= 300 ms after one spinner, >= 600 ms after two spinners turning together,
+  * H = slider clamped harder than L (used while the cube is flipped),
   * after every group at least one opposite pair (F+B or R+L) holds the cube (L or C),
   * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
     nothing is twisted, all grippers are vertical, F/B hold at C and R/L are released (R).
@@ -50,7 +51,7 @@ class Robot:
         self.scan_rules = scan_rules
 
     def clamped(self, arm):
-        return self.sl[arm.upper()] in "LC"
+        return self.sl[arm.upper()] in "LCH"
 
     def run(self, seq, label):
         parts = re.split(r"(\d+)", seq)
@@ -58,25 +59,25 @@ class Robot:
             grp = parts[gi]
             wait = int(parts[gi + 1]) if gi + 1 < len(parts) else None
             spin, slide = {}, {}
-            for s, st in re.findall(r"([FBRLfbrl])([LlCrR])", grp):
+            for s, st in re.findall(r"([FBRLfbrl])([LlCrRH])", grp):
                 (slide if s.isupper() else spin)[s] = st
             if spin and slide:
                 self.err.append(f"{label}: group '{grp}' moves sliders and spinners together")
-            depth = {"R": 0, "r": 0, "C": 1, "l": 1, "L": 2}
+            depth = {"R": 0, "r": 0, "C": 1, "l": 1, "L": 2, "H": 3}
             clamps = [k for k, v in slide.items() if depth[v] > depth[self.sl[k]]]
             frees = [k for k, v in slide.items() if depth[v] < depth[self.sl[k]]]
             if clamps and frees:
                 self.err.append(f"{label}: group '{grp}' clamps {clamps} and releases {frees} at once")
-            if slide and wait is not None and wait < 250:
+            if slide and wait is not None and wait < 400:
                 self.err.append(f"{label}: only {wait} ms after slider group '{grp}'")
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
             moved = {k: ANG[v] - self.sp[k] for k, v in spin.items() if ANG[v] != self.sp[k]}
-            if len(moved) > 1 and any(abs(v) > 45 for v in moved.values()):
-                self.err.append(f"{label}: spinners {sorted(moved)} turn together by more than 45 deg "
-                                f"in '{grp}' (no sync waypoint)")
+            need = 600 if len(moved) > 1 else 300 if moved else 0
+            if need and wait is not None and wait < need:
+                self.err.append(f"{label}: only {wait} ms after spinner group '{grp}' (needs {need})")
             for s, st in slide.items():
-                if st == "L" and self.sl[s] != "L":
+                if st in "LH" and self.sl[s] not in "LH":
                     arm = s.lower()
                     ang = ANG[spin[arm]] if arm in spin else self.sp[arm]
                     if not self.square(arm, ang - self.twist.get(self.c[self.center(arm)], 0)):
@@ -204,7 +205,7 @@ def check_solve(path):
 
 
 def fill(seq):
-    return seq.replace("{d}", "200").replace("{s}", "250").replace("{h}", "140")
+    return seq.replace("{d}", "300").replace("{s}", "400").replace("{p}", "600")
 
 
 def check_scan(path, front="R", top="W"):

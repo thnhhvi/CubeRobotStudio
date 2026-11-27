@@ -3,6 +3,7 @@
 #include "MyServo.h"
 #include "Config.h"
 #include "Calibrate.h"
+#include "SequenceManager.h"
 
 #define MIN_PULSE_WIDTH 250
 #define MAX_PULSE_WIDTH 3000
@@ -26,6 +27,15 @@ void MyServo::setState(ServoState next, unsigned int glide)
     {
     case STATE_L:
         target = cal.L_us; break;
+    case STATE_H:
+        if (type % 2 == 1) // Slider: press a little further than L (away from C)
+        {
+            int extra = seqManager.hardGripUs;
+            target = (cal.L_us >= cal.C_us) ? (int)cal.L_us + extra : (int)cal.L_us - extra;
+        }
+        else
+            target = cal.L_us;
+        break;
     case STATE_R:
         target = cal.R_us; break;
     case STATE_C:
@@ -79,7 +89,10 @@ void MyServo::update(unsigned long now)
         // smoothstep: gentle start and stop, so the servo can follow the path
         float x = (float)t / (float)glideMs;
         float e = x * x * (3.0f - 2.0f * x);
-        pulse = fromPulse + (int)((toPulse - fromPulse) * e);
+        int p = fromPulse + (int)((toPulse - fromPulse) * e);
+        if (p == pulse)
+            return;
+        pulse = p;
     }
     if (attached)
         thisServo.writeMicroseconds(pulse);

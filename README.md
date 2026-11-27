@@ -42,20 +42,24 @@ instead of pressing at L, and the arms are not kept powered while waiting during
 
 ## Robot commands
 
-Slider states: **L = clamped (pressing)**, **C = just touching**, **R = released**. Spinners: L −90°,
-l −45°, C 0°, r +45°, R +90°.
+Slider states: **H = clamped a little harder than L** (only while the cube is flipped or rolled; set by
+*Flip grip* in the Robot panel, needs the Cube Robot Studio firmware), **L = clamped (pressing)**,
+**C = just touching**, **R = released**. Spinners: L −90°, l −45°, C 0°, r +45°, R +90°.
 
 Safety rules for every command the app sends (solve, scramble, scan):
 
-* **Spinners wait for sliders.** A step moves sliders or spinners, never both. After a slider step the app
-  waits at least 250 ms (or the speed setting, if slower) before any spinner moves.
+* **One type at a time.** A step moves sliders or spinners, never both, and the next step only starts
+  when this one is done: at least **400 ms** after sliders, **300 ms** after one spinner and **600 ms**
+  after two spinners turning together (or the speed setting, if slower).
 * **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
-* **Spinners in sync.** When two spinners turn together (cube rolls), each 90° turn is split into two 45°
-  halves of at least 300 ms. With the firmware in `arduino/Arduino` (release: `CubeRobotFirmware.zip`)
-  both grippers glide along one timed path, so neither can run ahead and turn a single face. The stock
+* **Spinners in sync.** Two spinners turning together (cube flips and scan rolls) are one 90° step. With the
+  firmware in `arduino/Arduino` (release: `CubeRobotFirmware.zip`) they glide along one smooth, timed path
+  over 70% of the step and settle in the rest, so neither runs ahead and turns a single face. The stock
   firmware jumps at full servo speed; the app then shows "stock firmware (spinners not synced)".
+* **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H, and eases
+  back to L once the other pair holds again.
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
@@ -103,7 +107,7 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 
 `tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
 clamping only square to a face. It enforces the safety rules above (no slider+spinner step, no clamp and
-release in one step, slider wait, an opposite pair always holding, paired spinners at most 45° per step). For scanning it also checks the scan
+release in one step, minimum step times, an opposite pair always holding). For scanning it also checks the scan
 pose (one pair clamped at L, the other released at R, every gripper vertical) and the second-look hand-off.
 
 ```

@@ -31,33 +31,33 @@ type ScanPlan struct {
 }
 
 func defaultPlan() ScanPlan {
-	// Sliders: L = clamped, C = touching, R = released. Spinners: L -90, l -45, C 0, r +45, R +90.
-	// {s} slider wait (a spinner only moves after the sliders stopped), {h} each 45 deg half
-	// of a paired spinner move (both grippers pass the same waypoint: they stay in sync).
-	// Scan pose: the rolling pair clamped at L with its grippers VERTICAL (C), so they
-	// carry the cube like a platform; the other pair released at R, grippers vertical.
-	// To roll 90 deg and still end vertical, the rolling pair has to turn its grippers the
-	// other way first while it is released (the other pair holds the cube meanwhile).
+	// Sliders: L = clamped, H = clamped a little harder (while the cube is flipped),
+	// C = touching, R = released. Spinners: L -90, C 0 (vertical), R +90.
+	// {s} slider wait, {p} paired spinner move (both glide together), {d} one spinner.
+	// Each step moves sliders OR spinners and waits until they are done.
+	// Scan pose: the rolling pair clamped at L with its grippers vertical (a platform),
+	// the other pair released at R. To roll 90 deg and end vertical, the rolling pair
+	// pre-turns its grippers while released (the other pair holds the cube), clamps hard,
+	// the other pair lets go, the grippers turn back (rolling the cube), clamp eases to L.
 	a := func(id string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			Present: "FRBR{s}flbr{h}fLbR{h}FLBL{s}RRLR{s}flbr{h}fCfCbCbC{h}",
+			Present: "FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}FLBL{s}",
 			Revert:  "RLLL{s}",
 			Look2:   "RLLL{s}FRBR{s}", Look2Back: "FLBL{s}RRLR{s}",
 			View: []string{"z"}, Keep: []string{"z"}}
 	}
 	// left/right roll red (front) or orange (back) up, and roll it back afterwards
-	b := func(id, mid, pre, bmid, bpre, view string) ScanStep {
+	b := func(id, pre, back, view string) ScanStep {
 		return ScanStep{ID: id, Axis: "left/right",
-			Present: "RRLR{s}" + mid + "{h}" + pre + "{h}RLLL{s}FRBR{s}" + mid + "{h}rCrClClC{h}",
-			Revert: "FLBL{s}RRLR{s}" + bmid + "{h}" + bpre + "{h}RLLL{s}FRBR{s}" + bmid +
-				"{h}rCrClClC{h}FLBL{s}",
-			Look2: "FLBL{s}RRLR{s}", Look2Back: "RLLL{s}FRBR{s}",
+			Present: "RRLR{s}" + pre + "{p}RHLH{s}FRBR{s}rCrClClC{p}RLLL{s}",
+			Revert:  "FLBL{s}RRLR{s}" + back + "{p}RHLH{s}FRBR{s}rCrClClC{p}FLBL{s}RLLL{s}",
+			Look2:   "FLBL{s}RRLR{s}", Look2Back: "RLLL{s}FRBR{s}",
 			View: []string{view}, Keep: []string{}}
 	}
-	return ScanPlan{CameraFace: "U", Version: 7, Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 8, Steps: []ScanStep{
 		a("A1"), a("A2"), a("A3"), a("A4"),
-		b("B1", "rllr", "rLlR", "rrll", "rRlL", "x"),  // front (red) -> top
-		b("B2", "rrll", "rRlL", "rllr", "rLlR", "x'"), // back (orange) -> top
+		b("B1", "rLlR", "rRlL", "x"),  // front (red) -> top
+		b("B2", "rRlL", "rLlR", "x'"), // back (orange) -> top
 	}}
 }
 
@@ -86,6 +86,13 @@ var oldDefaults = map[string]bool{
 	"FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}":     true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}":     true,
+	// v7 (1.9/2.0): 45 deg waypoints, holders at L
+	"FRBR{s}flbr{h}fLbR{h}FLBL{s}RRLR{s}flbr{h}fCfCbCbC{h}": true,
+	"RLLL{s}": true,
+	"RRLR{s}rllr{h}rLlR{h}RLLL{s}FRBR{s}rllr{h}rCrClClC{h}":               true,
+	"FLBL{s}RRLR{s}rrll{h}rRlL{h}RLLL{s}FRBR{s}rrll{h}rCrClClC{h}FLBL{s}": true,
+	"RRLR{s}rrll{h}rRlL{h}RLLL{s}FRBR{s}rrll{h}rCrClClC{h}":               true,
+	"FLBL{s}RRLR{s}rllr{h}rLlR{h}RLLL{s}FRBR{s}rllr{h}rCrClClC{h}FLBL{s}": true,
 	// v6 (1.8): direct roll, holders horizontal
 	"RRLR{s}frbl{h}fRbL{h}":                   true,
 	"RLLL{s}FRBR{s}frbl{h}fCfCbCbC{h}FLBL{s}": true,
@@ -111,7 +118,7 @@ var oldDefaults = map[string]bool{
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 7 {
+	if p.Version >= 8 {
 		return p
 	}
 	def := map[string]ScanStep{}
@@ -125,7 +132,7 @@ func upgradePlan(p ScanPlan) ScanPlan {
 			p.Steps[i] = d
 		}
 	}
-	p.Version = 7
+	p.Version = 8
 	return p
 }
 
@@ -148,12 +155,13 @@ func savePlan(dir string, p ScanPlan) error {
 	return os.WriteFile(filepath.Join(dir, "scan_plan.json"), b, 0o644)
 }
 
-// fillSeq puts the speed into a plan string: {d} spinner wait, {s} slider wait,
-// {h} half of a paired (synced) spinner move.
+// fillSeq puts the speed into a plan string: {d} one spinner, {s} sliders, {p} two
+// spinners together. ({h} from older saved plans counts as half a paired move.)
 func fillSeq(seq string, d int) string {
 	seq = strings.ReplaceAll(seq, "{s}", strconv.Itoa(sliderWait(d)))
-	seq = strings.ReplaceAll(seq, "{h}", strconv.Itoa(halfStep(d)))
-	return strings.ReplaceAll(seq, "{d}", strconv.Itoa(d))
+	seq = strings.ReplaceAll(seq, "{p}", strconv.Itoa(pairWait(d)))
+	seq = strings.ReplaceAll(seq, "{h}", strconv.Itoa(pairWait(d)/2))
+	return strings.ReplaceAll(seq, "{d}", strconv.Itoa(spinWait(d)))
 }
 
 type WalkStep struct {

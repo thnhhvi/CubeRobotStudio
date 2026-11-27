@@ -26,6 +26,7 @@ type Settings struct {
 	SolveTimeout    float64 `json:"solve_timeout"`
 	ReturnHome      bool    `json:"return_home"`
 	LowPower        bool    `json:"low_power"`
+	FlipGripUs      int     `json:"flip_grip_us"` // H clamp: this much harder than L while flipping
 }
 
 // ---------------------------------------------------------------- bus
@@ -116,7 +117,7 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
@@ -290,7 +291,8 @@ const glideHelp = "This is the stock firmware: when two spinners turn together (
 // checkGlide turns on synced spinner moves when the firmware has them, else warns.
 func (c *Controller) checkGlide() {
 	if c.rq.EnableGlide() {
-		c.logf("info", "Firmware glide on: spinners that turn together move in sync")
+		c.rq.SetGrip(c.cfg().FlipGripUs)
+		c.logf("info", "Firmware glide on: spinners that turn together move in sync; flips clamp %d µs harder", c.cfg().FlipGripUs)
 	} else if !c.rq.CalibrationFirmware() {
 		c.logf("error", glideHelp)
 	}
@@ -442,7 +444,7 @@ func (c *Controller) Jog(seq string) error {
 func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.mu.Lock()
 	s := c.settings
-	changed := false
+	changed, grip := false, false
 	for k, v := range data {
 		switch k {
 		case "delay":
@@ -478,6 +480,15 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.ReturnHome, _ = v.(bool)
 		case "low_power":
 			s.LowPower, _ = v.(bool)
+		case "flip_grip_us":
+			s.FlipGripUs = int(toFloat(v))
+			if s.FlipGripUs < 0 {
+				s.FlipGripUs = 0
+			}
+			if s.FlipGripUs > 150 {
+				s.FlipGripUs = 150
+			}
+			grip = true
 		}
 	}
 	if changed {
@@ -495,6 +506,9 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.saveSettings()
 	c.mu.Unlock()
 	c.rq.SetLowPower(s.LowPower)
+	if grip {
+		c.rq.SetGrip(s.FlipGripUs)
+	}
 	c.PushState()
 	return nil
 }
