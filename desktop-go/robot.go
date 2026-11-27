@@ -86,6 +86,82 @@ func faceSeq(ch byte, orient, d int) string {
 	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, d, slider, d, a, a, d, slider, d)
 }
 
+// parseSeq returns the (servo, state) pairs of a SEQ string in order (delays skipped).
+func parseSeq(seq string) [][2]byte {
+	out := [][2]byte{}
+	for i := 0; i < len(seq); {
+		if seq[i] >= '0' && seq[i] <= '9' {
+			i++
+			continue
+		}
+		if i+1 < len(seq) {
+			out = append(out, [2]byte{seq[i], seq[i+1]})
+		}
+		i += 2
+	}
+	return out
+}
+
+// slider path from open to clamped; r / l are the firmware's half-way positions
+const sliderPath = "RrClL"
+
+// closeSequence clamps the cube gently: the front and back sliders step to L at the
+// given speed, then a pause, then the right and left sliders do the same. Each
+// slider starts from its current position (never opens first).
+func closeSequence(state map[byte]byte, d, speedPct, pauseMs int) string {
+	if speedPct < 10 {
+		speedPct = 10
+	}
+	if speedPct > 100 {
+		speedPct = 100
+	}
+	// full-speed travel R->L takes one servo delay; at speedPct it takes d*100/speedPct,
+	// split over the 4 segments of the path
+	step := (d*100/speedPct + 2) / 4
+	if step < 20 {
+		step = 20
+	}
+	var b strings.Builder
+	group := func(servos string) bool {
+		start := map[byte]int{}
+		moved := false
+		for i := 0; i < len(servos); i++ {
+			idx := strings.IndexByte(sliderPath, state[servos[i]])
+			if idx < 0 {
+				idx = 0 // unknown: treat as open
+			}
+			start[servos[i]] = idx
+		}
+		for k := 1; k < len(sliderPath); k++ {
+			stepped := false
+			for i := 0; i < len(servos); i++ {
+				if start[servos[i]] < k {
+					b.WriteByte(servos[i])
+					b.WriteByte(sliderPath[k])
+					stepped = true
+				}
+			}
+			if stepped {
+				moved = true
+				if k < len(sliderPath)-1 {
+					b.WriteString(strconv.Itoa(step))
+				}
+			}
+		}
+		return moved
+	}
+	if group("FB") {
+		b.WriteString(strconv.Itoa(step + pauseMs))
+	}
+	group("RL")
+	s := b.String()
+	if s == "" {
+		s = "FLBLRLLL" // already clamped: re-assert
+	}
+	// a SEQ must not end with a delay
+	return strings.TrimRight(s, "0123456789")
+}
+
 // SeqBatch is one SEQ command (fits the firmware buffer) and the moves it performs.
 type SeqBatch struct {
 	Seq         string
@@ -304,6 +380,7 @@ type Simulator struct {
 	out    func(string)
 	busy   bool
 	cancel chan struct{}
+	state  map[byte]byte
 }
 
 func (s *Simulator) later(msg string, d time.Duration) {
@@ -320,6 +397,14 @@ func (s *Simulator) receive(line string) {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
 	case "STATUS":
+		if len(parts) == 2 && len(parts[1]) == 1 {
+			st := byte('C')
+			if v, ok := s.state[parts[1][0]]; ok {
+				st = v
+			}
+			s.later(string(st), 10*time.Millisecond)
+			return
+		}
 		if s.busy {
 			s.later("BUSY", 10*time.Millisecond)
 		} else {
@@ -343,6 +428,12 @@ func (s *Simulator) receive(line string) {
 		if s.busy {
 			s.later("ERR busy", 10*time.Millisecond)
 			return
+		}
+		if s.state == nil {
+			s.state = map[byte]byte{}
+		}
+		for _, p := range parseSeq(parts[1]) {
+			s.state[p[0]] = p[1]
 		}
 		total := 100
 		num := ""
@@ -406,14 +497,23 @@ type RobotQueue struct {
 	busySeen    *Event
 	Orientation int
 	aborted     *Event
+	sliders     map[byte]byte // last known slider states (F B R L)
+	statusCh    chan byte
 }
 
 func NewRobotQueue(l *Link, emit func(map[string]any)) *RobotQueue {
 	return &RobotQueue{link: l, emit: emit, State: "IDLE", idle: NewEvent(true), busySeen: NewEvent(false),
-		aborted: NewEvent(false)}
+		aborted: NewEvent(false), sliders: map[byte]byte{}, statusCh: make(chan byte, 4)}
 }
 
 func (q *RobotQueue) OnLine(line string) {
+	if len(line) == 1 && strings.Contains("RCLrl", line) {
+		select { // reply to "STATUS <servo>"
+		case q.statusCh <- line[0]:
+		default:
+		}
+		return
+	}
 	switch {
 	case line == "IDLE" || line == "BUSY":
 		q.mu.Lock()
@@ -449,6 +549,15 @@ func (q *RobotQueue) Start(cmd string) (time.Time, error) {
 		q.idle.Set()
 		return time.Time{}, err
 	}
+	if strings.HasPrefix(cmd, "SEQ ") && cmd != "SEQ C" {
+		q.mu.Lock()
+		for _, p := range parseSeq(cmd[4:]) {
+			if strings.IndexByte("FBRL", p[0]) >= 0 {
+				q.sliders[p[0]] = p[1]
+			}
+		}
+		q.mu.Unlock()
+	}
 	if !q.busySeen.Wait(5 * time.Second) {
 		q.idle.Set()
 		return time.Time{}, errors.New("Robot did not answer " + cmd + " (no BUSY within 5 s). " +
@@ -472,7 +581,40 @@ func (q *RobotQueue) Run(cmd string) error {
 
 func (q *RobotQueue) WaitIdle(d time.Duration) bool { return q.idle.Wait(d) }
 
+// SliderStates returns a copy of the last known slider states.
+func (q *RobotQueue) SliderStates() map[byte]byte {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	m := map[byte]byte{}
+	for k, v := range q.sliders {
+		m[k] = v
+	}
+	return m
+}
+
+// QuerySliders asks the firmware ("STATUS F" ...) where each slider is.
+func (q *RobotQueue) QuerySliders() {
+	for _, s := range []byte("FBRL") {
+		for len(q.statusCh) > 0 {
+			<-q.statusCh
+		}
+		if q.link.Send("STATUS "+string(s)) != nil {
+			return
+		}
+		select {
+		case st := <-q.statusCh:
+			q.mu.Lock()
+			q.sliders[s] = st
+			q.mu.Unlock()
+		case <-time.After(1500 * time.Millisecond):
+		}
+	}
+}
+
 func (q *RobotQueue) Abort() {
+	q.mu.Lock()
+	q.sliders = map[byte]byte{} // unknown after an abort
+	q.mu.Unlock()
 	q.aborted.Set()
 	q.link.Send("SEQ C")
 	q.idle.Set()

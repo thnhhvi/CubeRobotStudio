@@ -198,6 +198,8 @@
     $("btn-calc").disabled = !S.solver_ready || !!S.busy_task;
     if (document.activeElement !== $("speed")) $("speed").value = S.settings.delay;
     $("speed-val").textContent = S.settings.delay + " ms";
+    if (document.activeElement !== $("close-pct")) $("close-pct").value = S.settings.close_speed_pct;
+    if (document.activeElement !== $("close-pause")) $("close-pause").value = S.settings.close_pause_ms;
     $("pose-badge").textContent = S.pose === "INVERT" ? "flipped (U/D on arms)" : "home pose";
     const w = (S.warnings || []).map((x) => `<div class="warn">⚠ ${x}</div>`).join("");
     $("est").innerHTML = (S.solution_info && S.solution_info.robot_string
@@ -371,6 +373,8 @@
   $("btn-reset").onclick = () => post("/api/reset");
   $("speed").oninput = (e) => ($("speed-val").textContent = e.target.value + " ms");
   $("speed").onchange = (e) => post("/api/settings", { delay: +e.target.value });
+  $("close-pct").onchange = (e) => post("/api/settings", { close_speed_pct: +e.target.value });
+  $("close-pause").onchange = (e) => post("/api/settings", { close_pause_ms: +e.target.value });
   $("pb-first").onclick = () => previewTo(0);
   $("pb-prev").onclick = () => previewTo(pbPos - 1);
   $("pb-next").onclick = () => previewTo(pbPos + 1);

@@ -25,6 +25,8 @@ type Settings struct {
 	ScanDelayMin    int     `json:"scan_delay_min"`
 	SolveTimeout    float64 `json:"solve_timeout"`
 	ReturnHome      bool    `json:"return_home"`
+	CloseSpeedPct   int     `json:"close_speed_pct"`
+	ClosePauseMs    int     `json:"close_pause_ms"`
 }
 
 // ---------------------------------------------------------------- bus
@@ -109,11 +111,14 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, CloseSpeedPct: 80, ClosePauseMs: 500},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
+	}
+	if c.settings.CloseSpeedPct == 0 {
+		c.settings.CloseSpeedPct, c.settings.ClosePauseMs = 80, 500
 	}
 	if _, err := centerColors(c.settings.Front[0], c.settings.Top[0]); err != nil {
 		c.settings.Front, c.settings.Top = "R", "W"
@@ -225,6 +230,7 @@ func (c *Controller) Connect(port string) error {
 	c.PushState()
 	if port == "SIMULATOR" {
 		c.link.Send("PING")
+		c.rq.QuerySliders()
 		return nil
 	}
 	// The Nano resets when the port opens: wait for its banner, then PING.
@@ -235,6 +241,8 @@ func (c *Controller) Connect(port string) error {
 		c.link.Send("PING")
 		if c.heard.Wait(2 * time.Second) {
 			c.logf("info", "Arduino answered on %s", port)
+			c.rq.QuerySliders()
+			c.logf("info", "Slider positions: %s", c.sliderText())
 			return nil
 		}
 	}
@@ -287,11 +295,22 @@ func (c *Controller) OpenArms() error {
 	}
 	return c.startTask("open", func() error { return c.rq.Run("SEQ " + openSeq) })
 }
+
+// CloseArms clamps the cube: front/back sliders first at CloseSpeedPct, a pause of
+// ClosePauseMs, then right/left - each slider from wherever it is now.
 func (c *Controller) CloseArms() error {
 	if err := c.requireRobot(); err != nil {
 		return err
 	}
-	return c.startTask("close", func() error { return c.rq.Run("SEQ " + closeSeq) })
+	return c.startTask("close", func() error {
+		st := c.rq.SliderStates()
+		if len(st) < 4 && c.rq.GetState() == "IDLE" {
+			c.rq.QuerySliders() // positions unknown (e.g. after Abort): ask the Arduino
+			st = c.rq.SliderStates()
+		}
+		seq := closeSequence(st, c.settings.Delay, c.settings.CloseSpeedPct, c.settings.ClosePauseMs)
+		return c.rq.Run("SEQ " + seq)
+	})
 }
 
 func (c *Controller) Abort() {
@@ -380,6 +399,22 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.SolveTimeout = toFloat(v)
 		case "return_home":
 			s.ReturnHome, _ = v.(bool)
+		case "close_speed_pct":
+			s.CloseSpeedPct = int(toFloat(v))
+			if s.CloseSpeedPct < 10 {
+				s.CloseSpeedPct = 10
+			}
+			if s.CloseSpeedPct > 100 {
+				s.CloseSpeedPct = 100
+			}
+		case "close_pause_ms":
+			s.ClosePauseMs = int(toFloat(v))
+			if s.ClosePauseMs < 0 {
+				s.ClosePauseMs = 0
+			}
+			if s.ClosePauseMs > 5000 {
+				s.ClosePauseMs = 5000
+			}
 		}
 	}
 	if changed {
@@ -948,4 +983,17 @@ func (c *Controller) TriggerCapture() error {
 	}
 	c.bus.Emit(map[string]any{"type": "capture_now"})
 	return nil
+}
+
+func (c *Controller) sliderText() string {
+	m := c.rq.SliderStates()
+	out := ""
+	for _, s := range []byte("FBRL") {
+		v := m[s]
+		if v == 0 {
+			v = '?'
+		}
+		out += string(s) + "=" + string(v) + " "
+	}
+	return strings.TrimSpace(out)
 }

@@ -143,3 +143,6 @@ body.light .viewer { background: radial-gradient(circle at 50% 45%, #fff 0%, #e4
 .warn { color: var(--warn); font-size: 12px; margin-top: 6px; }
 
 @media (max-width: 1200px) { .grid { grid-template-columns: 330px 1fr; } #panel-robot { grid-column: 1 / -1; } }
+.close-cfg { margin-top: 10px; line-height: 2; }
+.close-cfg input { width: 58px; padding: 2px 6px; font-size: 12px; background: var(--panel2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 6px; }
