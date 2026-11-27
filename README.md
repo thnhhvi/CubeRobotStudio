@@ -46,7 +46,7 @@ Slider states: **H = clamped a little harder than L** (only while the cube is fl
 *Flip grip* in the Robot panel, needs the Cube Robot Studio firmware), **L = clamped (pressing)**,
 **C = just touching**, **R = released**. Spinners: L −90°, l −45°, C 0°, r +45°, R +90°.
 
-Safety rules for every command the app sends (solve, scramble, scan):
+Safety rules for the scan commands the app builds itself (solves run the firmware's own MOVE):
 
 * **One type at a time.** A step moves sliders or spinners, never both, and the next step only starts
   when this one is done: at least **400 ms** after sliders, **300 ms** after one spinner and **400 ms**
@@ -54,40 +54,32 @@ Safety rules for every command the app sends (solve, scramble, scan):
 * **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
-* **Hard grip while flipping.** The pair carrying the cube during a flip or scan roll clamps at H (Flip
+* **Hard grip while rolling (scan).** The pair carrying the cube during a scan roll clamps at H (Flip
   grip, default 40 µs past L), the other pair lets go, and once the roll is done the other pair clamps and
   the carriers ease back to L.
 
 * **Open:** right and left sliders to R, a **500 ms** pause, then front and back (`SEQ RRLR500FRBR`).
 * **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
-* **Solve / Scramble:** the app sends its own servo steps as `SEQ` commands (never more than 250
-  characters; firmware buffer 256), with every hold at **L**.
+* **Solve / Scramble:** the firmware's `MOVE` command (see *Solving* below). Scan steps are `SEQ` commands
+  (never more than 250 characters; firmware buffer 256).
 
-## Solving algorithm (fewest rolls)
+## Solving (as in the original CubeSolver app)
 
-The robot can turn the four faces that point at its arms; the faces pointing up and down need a roll first,
-and one roll takes about as long as five face turns. So the app optimises robot time, not move count:
-
-1. **Any of the 24 orientations, both roll types.** Besides the front/back roll (z) the left/right arms can
-   roll the cube too (x), so after a roll any two of the cube's three axes can be on the arms. For a given
-   move list a dynamic program over all 24 orientations picks the rolls (and their directions) that cost the
-   least time, including the way back to the start orientation at the end.
-2. **Many candidate solutions.** The two-phase (Kociemba) solver runs six times in parallel: on the cube
-   seen along each of its three axes and on the inverse cube, and keeps near-shortest solutions (up to 3
-   moves longer). Every candidate is planned as in 1; the fastest for the robot wins.
-
-On random cubes this needs about 4 rolls per solve, against about 10 with the old flip-for-every-U/D scheme,
-at the cost of 1–2 extra face turns.
-* The firmware cuts power to the servos 3 s after a command (to keep the power draw low). While a scanned
-  face waits for the camera, the app re-sends the slider positions every 2 s so the arms keep holding.
+The solver is the one the original Yonni123 CubeSolver app uses: Kociemba's two-phase algorithm, first
+solution of at most 21 moves (1 s limit). The robot performs it with the firmware's own `MOVE` command,
+exactly like the original app: the firmware turns F/B with the front/back arms, flips the cube (front/back
+arms) to bring U/D to the left/right arms and back for L/R, and holds the cube with the sliders at C.
+The app mirrors the firmware's timing for the 3D view. A `MOVE` holds at most 63 moves; longer move lists
+are split. With *Return home* on, a cube left flipped is flipped back at the end.
 
 ## Scanning
 
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
 3. The face already on top is scanned first, without a roll. Each further face is rolled straight up by
-   one pair (pre-turn its grippers while released, clamp hard, the other pair lets go, roll). In the scan pose the rolling pair is **clamped at L with its grippers vertical** and the other
-   pair waits **released at R**. Example for red front / white top: white, green, yellow, blue
+   one pair (pre-turn its grippers while released, clamp hard, the other pair lets go, roll). In the scan
+   pose the rolling pair is **clamped at L with its grippers vertical** and the other pair **touches at C**.
+   No 45° twist. Example for red front / white top: white, green, yellow, blue
    (front/back roll), red, orange (left/right roll), then one last roll brings the cube back to where it
    started.
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
@@ -117,7 +109,7 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 `tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
 clamping only square to a face. It enforces the safety rules above (no slider+spinner step, no clamp and
 release in one step, minimum step times, an opposite pair always holding). For scanning it also checks the scan
-pose (one pair clamped at L, the other released at R, every gripper vertical) and the second-look hand-off.
+pose (one pair clamped at L, the other touching at C, every gripper vertical) and the second-look hand-off. Solves are checked physically with the firmware's own MOVE servo strings.
 
 ```
 cd desktop-go && cp -r ../desktop/web web && DUMP_SEQ=/tmp/seqs.json go test -run TestDumpSolveSeqs .

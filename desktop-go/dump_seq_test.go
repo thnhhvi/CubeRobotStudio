@@ -26,11 +26,12 @@ func TestDumpSolveSeqs(t *testing.T) {
 		n := 1 + r.Intn(30)
 		mv := randomScramble(n, r)
 		d := 120 + 10*r.Intn(39)
-		bs := []string{}
-		for _, b := range buildSeqBatches(toRobotMoves(mv), NORMAL, d, true) {
-			bs = append(bs, b.Seq)
+		seq, end := fwSeqOfMoves(toRobotMoves(mv), NORMAL, d)
+		home := ""
+		if end == INVERT {
+			home = fwRotateSeq(NORMAL, d)
 		}
-		runs = append(runs, run{mv, bs, ""})
+		runs = append(runs, run{mv, []string{seq}, home})
 	}
 	b, _ := json.Marshal(runs)
 	os.WriteFile(out, b, 0o644)
@@ -75,13 +76,10 @@ func TestDumpFirmwareSeqs(t *testing.T) {
 				lines = append(lines, fillSeq(s, d))
 			}
 		}
-		lines = append(lines, fillSeq(p.Finish, d))
-		for _, g := range rollGens {
-			lines = append(lines, rollSeq(g, d))
-		}
+		lines = append(lines, fillSeq(p.Finish, d), fwRotateSeq(NORMAL, d), fwRotateSeq(INVERT, d))
 		r := rand.New(rand.NewSource(int64(d)))
-		for _, b := range buildSeqBatches(toRobotMoves(randomScramble(25, r)), NORMAL, d, true) {
-			lines = append(lines, b.Seq)
+		for _, m := range moveCommands(toRobotMoves(randomScramble(21, r)), NORMAL, d) {
+			lines = append(lines, m.Cmd)
 		}
 	}
 	os.WriteFile(out, []byte(strings.Join(lines, "\n")+"\n"), 0o644)

@@ -40,8 +40,18 @@ int main(int argc, char** argv) {
         line[strcspn(line, "\r\n")] = 0;
         if (!*line) continue;
         n++;
-        if (strlen(line) > 250) { printf("too long (%zu): %s\n", strlen(line), line); bad++; continue; }
-        if (seqManager.startSequence(line) != 0) { printf("rejected: %s\n", line); bad++; continue; }
+        int started;
+        if (strncmp(line, "MOVE ", 5) == 0) {   // MOVE <delay> <orientation> <moves>
+            int d = 0, o = 0;
+            char mv[256] = {0};
+            sscanf(line + 5, "%d %d %255s", &d, &o, mv);
+            seqManager.orientation = o ? ORIENT_INVERT : ORIENT_NORMAL;
+            started = seqManager.startMoves(mv, d);
+        } else {
+            if (strlen(line) > 250) { printf("too long (%zu): %s\n", strlen(line), line); bad++; continue; }
+            started = seqManager.startSequence(line);
+        }
+        if (started != 0) { printf("rejected: %s\n", line); bad++; continue; }
         unsigned long limit = NOW + 120000;
         while (seqManager.isBusy() && NOW < limit) {
             NOW++;

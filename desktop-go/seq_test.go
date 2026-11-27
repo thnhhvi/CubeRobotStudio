@@ -9,87 +9,45 @@ import (
 	"time"
 )
 
-func TestSeqBatches(t *testing.T) {
-	rm := toRobotMoves([]string{"U", "F'", "R2", "D", "B", "L'", "U2", "F", "D'", "R"})
-	bs := buildSeqBatches(rm, NORMAL, 210, true)
-	all := ""
-	end := -1
-	for _, b := range bs {
-		if len("SEQ "+b.Seq) > 254 {
-			t.Fatalf("too long: %d", len("SEQ "+b.Seq))
-		}
-		all += b.Moves
-		// timing of the SEQ must match the animation timeline
-		_, total := timeline(b.Steps, 210)
-		sum := 100
-		for _, m := range regexp.MustCompile(`\d+`).FindAllString(b.Seq, -1) {
-			n, _ := strconv.Atoi(m)
-			sum += n
-		}
-		if sum != total {
-			t.Fatalf("timing mismatch seq=%d timeline=%d", sum, total)
-		}
-		end = b.EndOrient
-	}
-	if all != rm {
-		t.Fatalf("moves lost: %s vs %s", all, rm)
-	}
-	if end != homeOrient {
-		t.Fatalf("not back home: %d", end)
-	}
-	t.Logf("%d batches; first: SEQ %s", len(bs), bs[0].Seq)
-}
-
-// The planner uses all 24 orientations and both roll types: a move list that the old
-// two-pose scheme had to flip for every U/D <-> L/R change needs far fewer rolls.
-func TestPlannerRolls(t *testing.T) {
-	if len(orients) != 24 {
-		t.Fatalf("%d orientations", len(orients))
-	}
-	rm := toRobotMoves([]string{"U", "R", "U'", "R'", "U", "R", "U'", "R'"})
-	steps, end, _ := planRobot(rm, homeOrient, true, 300)
-	if n := countRolls(steps); n > 2 || end != homeOrient {
-		t.Fatalf("U R U' R' x2 needs %d rolls (end %d)", n, end)
-	}
-	// F/B/L/R only: no roll at all
-	steps, _, _ = planRobot(toRobotMoves([]string{"F", "R", "B'", "L2"}), homeOrient, true, 300)
-	if countRolls(steps) != 0 {
-		t.Fatalf("rolls for arm faces only")
-	}
-	// every turn is on a face that points at an arm
-	r := rand.New(rand.NewSource(5))
-	for n := 0; n < 200; n++ {
-		mv := randomScramble(25, r)
-		steps, end, _ := planRobot(toRobotMoves(mv), homeOrient, true, 300)
-		if end != homeOrient {
-			t.Fatal("not home")
-		}
-		for _, s := range steps {
-			if s.Roll == "" && (s.Arm == 0 || armFor(s.Orient, s.Move) != s.Arm) {
-				t.Fatalf("bad arm for %c", s.Move)
+// The app's timeline for MOVE must match the firmware's own servo strings exactly.
+func TestFirmwareMoveTiming(t *testing.T) {
+	r := rand.New(rand.NewSource(3))
+	for n := 0; n < 100; n++ {
+		rm := toRobotMoves(randomScramble(21, r))
+		d := 120 + 10*r.Intn(30)
+		for _, o := range []int{NORMAL, INVERT} {
+			_, end, total := fwTimeline(rm, o, d)
+			seq, end2 := fwSeqOfMoves(rm, o, d)
+			sum := 100
+			for _, m := range regexp.MustCompile(`\d+`).FindAllString(seq, -1) {
+				v, _ := strconv.Atoi(m)
+				sum += v
+			}
+			if sum != total || end != end2 {
+				t.Fatalf("timeline %d/%d vs firmware %d/%d", total, end, sum, end2)
 			}
 		}
 	}
+	cmds := moveCommands(strings.Repeat("U", 130), NORMAL, 210)
+	if len(cmds) != 3 || !strings.HasPrefix(cmds[0].Cmd, "MOVE 210 0 ") || !strings.HasPrefix(cmds[1].Cmd, "MOVE 210 1 ") {
+		t.Fatalf("MOVE split: %v", cmds)
+	}
 }
 
-func TestSolveForRobot(t *testing.T) {
+func TestOriginalSolver(t *testing.T) {
 	tb := NewTables()
 	r := rand.New(rand.NewSource(11))
-	totalRolls, totalMoves := 0, 0
-	for n := 0; n < 5; n++ {
+	for n := 0; n < 10; n++ {
 		colors := applyMoves(solvedColors('R', 'W'), randomScramble(25, r))
-		ch, err := solveForRobot(tb, colors, 700*time.Millisecond, homeOrient, true, 300)
-		if err != nil {
-			t.Fatal(err)
+		fac, _ := colorsToFacelets(colors)
+		sols, err := SolveMany(tb, fac, 21, time.Second, 0, 1)
+		if err != nil || len(sols) != 1 || len(sols[0]) > 21 {
+			t.Fatalf("solver: %v %v", err, sols)
 		}
-		if applyMoves(colors, ch.Moves) != solvedColors('R', 'W') {
-			t.Fatalf("does not solve: %v", ch.Moves)
+		if applyMoves(colors, sols[0]) != solvedColors('R', 'W') {
+			t.Fatal("does not solve")
 		}
-		totalRolls += ch.Rolls
-		totalMoves += len(ch.Moves)
-		t.Logf("%d moves (shortest %d), %d rolls, %.1f s, from %d candidates", len(ch.Moves), ch.Shortest, ch.Rolls, float64(ch.Ms)/1000, ch.Tried)
 	}
-	t.Logf("average %.1f moves, %.1f rolls", float64(totalMoves)/5, float64(totalRolls)/5)
 }
 
 func TestSoftenHolds(t *testing.T) {
@@ -136,9 +94,9 @@ func TestFirmwareProbe(t *testing.T) {
 }
 
 func TestHardGrip(t *testing.T) {
-	in := rollSeq("z'", 210)
+	in := fillSeq(defaultPlan().Steps[1].Present, 210)
 	if !strings.Contains(in, "FHBH") {
-		t.Fatalf("flip does not clamp hard: %s", in)
+		t.Fatalf("scan roll does not clamp hard: %s", in)
 	}
 	if got := noHardGrip(in); strings.Contains(got, "H") || len(got) != len(in) {
 		t.Fatalf("stock firmware conversion: %s", got)

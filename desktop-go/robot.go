@@ -315,9 +315,14 @@ func (s *Simulator) receive(line string) {
 		if len(mv) > 63 {
 			mv = mv[:63]
 		}
-		_ = o
-		_, total := timeline(nil, d)
-		s.run(total + 1000*len(mv))
+		_, _, total := fwTimeline(mv, o, d)
+		if s.state == nil {
+			s.state = map[byte]byte{}
+		}
+		for _, k := range []byte("FBRL") {
+			s.state[k] = 'C' // MOVE leaves the sliders at C
+		}
+		s.run(total)
 	default:
 		s.later("ERR cmd: "+parts[0], 10*time.Millisecond)
 	}
@@ -476,6 +481,13 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	if err := q.link.Send(cmd); err != nil {
 		q.idle.Set()
 		return time.Time{}, err
+	}
+	if strings.HasPrefix(cmd, "MOVE ") {
+		q.mu.Lock()
+		for _, k := range []byte("FBRL") {
+			q.sliders[k] = 'C' // the firmware's MOVE holds the cube at C
+		}
+		q.mu.Unlock()
 	}
 	if strings.HasPrefix(cmd, "SEQ ") && cmd != "SEQ C" {
 		q.mu.Lock()

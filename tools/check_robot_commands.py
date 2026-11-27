@@ -18,7 +18,7 @@ group by group (commands between two delays run at the same time):
     starting at C, grippers vertical),
   * after every group at least one opposite pair (F+B or R+L) holds the cube (L or C),
   * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
-    nothing is twisted, all grippers are vertical, F/B hold at C and R/L are released (R).
+    nothing is twisted, all grippers are vertical, one pair clamped at L, the other at C.
 
 Usage:
   python tools/check_robot_commands.py solve <seqs.json>   # from desktop-go DUMP_SEQ test
@@ -43,7 +43,8 @@ AXIS = {"f": (0, 0, 1), "b": (0, 0, -1), "r": (1, 0, 0), "l": (-1, 0, 0)}
 
 
 class Robot:
-    def __init__(self, colors, scan_rules=False):
+    def __init__(self, colors, scan_rules=False, strict=True):
+        self.strict = strict                 # False: physics only (the firmware's own MOVE)
         self.c = colors                      # physical stickers, robot frame
         self.sl = {k: "L" for k in "FBRL"}
         self.sp = {k: 0 for k in "fbrl"}
@@ -64,11 +65,11 @@ class Robot:
             for s, st in re.findall(r"([FBRLfbrl])([LlCrRHT])", grp):
                 (slide if s.isupper() else spin)[s] = st
             follow = [k for k, v in slide.items() if v == "T"]
-            if follow:
+            if follow and self.strict:
                 self.err.append(f"{label}: T (following sliders) is not used any more: '{grp}'")
-            if spin and any(v != "T" for v in slide.values()):
+            if self.strict and spin and any(v != "T" for v in slide.values()):
                 self.err.append(f"{label}: group '{grp}' moves sliders and spinners together")
-            if follow:
+            if follow and self.strict:
                 rolling = [k for k in spin if ANG[spin[k]] != self.sp[k]]
                 if len(rolling) != 2 or any(self.sl[k] != "C" for k in follow) \
                         or any(PAIR[k.lower()].upper() not in follow for k in follow):
@@ -81,16 +82,16 @@ class Robot:
             depth = {"R": 0, "r": 0, "C": 1, "l": 1, "L": 2, "H": 3, "T": 1}
             clamps = [k for k, v in slide.items() if v != "T" and depth[v] > depth[self.sl[k]]]
             frees = [k for k, v in slide.items() if v != "T" and depth[v] < depth[self.sl[k]]]
-            if clamps and frees:
+            if self.strict and clamps and frees:
                 self.err.append(f"{label}: group '{grp}' clamps {clamps} and releases {frees} at once")
             need_sl = 400
-            if slide and not spin and wait is not None and wait < need_sl:
+            if self.strict and slide and not spin and wait is not None and wait < need_sl:
                 self.err.append(f"{label}: only {wait} ms after slider group '{grp}' (needs {need_sl})")
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
             moved = {k: ANG[v] - self.sp[k] for k, v in spin.items() if ANG[v] != self.sp[k]}
             need = 400 if len(moved) > 1 else 300 if moved else 0
-            if need and wait is not None and wait < need:
+            if self.strict and need and wait is not None and wait < need:
                 self.err.append(f"{label}: only {wait} ms after spinner group '{grp}' (needs {need})")
             for s, st in slide.items():
                 if st in "LH" and self.sl[s] not in "LH":
@@ -138,7 +139,7 @@ class Robot:
                 self.sp[k] = ANG[v]
             for k in follow:            # a following slider ends touching
                 self.sl[k] = "C"
-            if grp and not ((self.clamped("f") and self.clamped("b")) or
+            if self.strict and grp and not ((self.clamped("f") and self.clamped("b")) or
                             (self.clamped("r") and self.clamped("l"))):
                 self.err.append(f"{label}: after '{grp}' no opposite pair holds the cube {self.sl}")
 
@@ -169,20 +170,20 @@ class Robot:
             self.tilt[ax] -= step
 
     def scan_pose(self, label):
-        """face rolled straight up: nothing twisted or tilted, every gripper vertical (the
-        clamped pair is a platform); one opposite pair clamped at L, the other released at R"""
+        """face rolled straight up: nothing twisted or tilted, every gripper vertical; one
+        opposite pair clamped at L, the other touching at C"""
         top = self.c[4]
         if any(self.tilt.values()) or any(a % 90 for a in self.twist.values()):
             self.err.append(f"{label}: cube or a layer is not square")
         pairs = [("F", "B"), ("R", "L")]
         ok = False
         for hold, free in (pairs, pairs[::-1]):
-            if all(self.sl[k] == "L" for k in hold) and all(self.sl[k] == "R" for k in free) \
+            if all(self.sl[k] == "L" for k in hold) and all(self.sl[k] == "C" for k in free) \
                     and all(self.sp[k.lower()] == 0 for k in "FBRL"):
                 ok = True
         if not ok:
             self.err.append(f"{label}: scan pose sliders {self.sl} grippers {self.sp} "
-                            "(want one pair at L, the other at R, all grippers vertical)")
+                            "(want one pair at L, the other at C, all grippers vertical)")
         return top
 
     def camera_face_color(self):
@@ -202,17 +203,19 @@ class Robot:
 
 
 def check_solve(path):
+    """solves run with the firmware's own MOVE code (expanded to its servo strings):
+    physics only - the cube must end up as the app's model says"""
     runs = json.load(open(path))
     home = cube.solved_colors("R", "W")
     bad = 0
     for i, r in enumerate(runs):
-        rob = Robot(home)
+        rob = Robot(home, strict=False)
         for j, s in enumerate(r["batches"] + ([r["home"]] if r["home"] else [])):
             rob.run(s, f"run {i} cmd {j}")
         want = cube.apply_moves(home, r["moves"])
         if rob.c != want:
             rob.err.append(f"run {i}: physical cube != app model for {' '.join(r['moves'])}")
-        if any(v != "L" for v in rob.sl.values()) or any(rob.sp.values()) or any(rob.tilt.values()):
+        if any(v not in "LC" for v in rob.sl.values()) or any(rob.sp.values()) or any(rob.tilt.values()):
             rob.err.append(f"run {i}: not in clamped home pose at the end {rob.sl} {rob.sp}")
         if rob.err:
             bad += 1
@@ -239,7 +242,8 @@ def check_scan(path, front="R", top="W"):
             before = dict(rob.sl)
             rob.run(fill(st["handoff"]), st["id"] + " hand-off")
             if {k: ("R" if v == "L" else "L") for k, v in before.items()} != rob.sl:
-                rob.err.append(f"{st['id']} second look did not swap the holding pair {rob.sl}")
+                rob.err.append(f"{st['id']} second look: the other pair should clamp and the "
+                               f"holders let go {rob.sl}")
             if rob.c[4] != seen[-1]:
                 rob.err.append(f"{st['id']} hand-off moved the cube")
             rob.run(fill(st["handback"]), st["id"] + " hand-back")

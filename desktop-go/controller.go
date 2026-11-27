@@ -578,21 +578,32 @@ func (c *Controller) Solve() error {
 			return err
 		}
 	}
-	_ = fac
-	ch, err := solveForRobot(tb, colors, timeout, c.rq.GetOrientation(), c.cfg().ReturnHome, d)
+	// the original CubeSolver app: first two-phase solution of at most 21 moves, 1 s
+	if timeout > time.Second || timeout <= 0 {
+		timeout = time.Second
+	}
+	sols, err := SolveMany(tb, fac, 21, timeout, 0, 1)
 	if err != nil {
 		return err
 	}
-	if applyMoves(colors, ch.Moves) != solvedColors(colors[9*2+4], colors[4]) {
+	best := sols[0]
+	if applyMoves(colors, best) != solvedColors(colors[9*2+4], colors[4]) {
 		return errors.New("internal error: solution does not solve the cube")
 	}
-	best, rm, bestMs, flips := ch.Moves, toRobotMoves(ch.Moves), ch.Ms+100, ch.Rolls
-	sols, shortest := ch.Tried, ch.Shortest
+	rm := toRobotMoves(best)
+	ev, _, bestMs := fwTimeline(rm, c.rq.GetOrientation(), d)
+	flips := 0
+	for _, e := range ev {
+		if e.Kind == "pose" {
+			flips++
+		}
+	}
+	shortest := len(best)
 	c.mu.Lock()
 	c.colors = colors
 	c.solution = best
 	c.solutionInfo = map[string]any{"moves": len(best), "robot_moves": len(rm), "flips": flips,
-		"est_ms": bestMs, "candidates": sols, "robot_string": rm, "shortest": shortest}
+		"est_ms": bestMs, "candidates": 1, "robot_string": rm, "shortest": shortest}
 	c.mu.Unlock()
 	c.PushState()
 	return nil
@@ -633,9 +644,9 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 	rm := toRobotMoves(moves)
 	c.bus.Emit(map[string]any{"type": "run", "moves": moves, "solve": isSolve, "delay": d})
 	idx := 0
-	for _, b := range buildSeqBatches(rm, c.rq.GetOrientation(), d, c.cfg().ReturnHome) {
-		events, total := timeline(b.Steps, d)
-		tBusy, err := c.rq.Start("SEQ " + b.Seq)
+	for _, m := range moveCommands(rm, c.rq.GetOrientation(), d) {
+		events, _, total := fwTimeline(m.Moves, m.StartOrient, d)
+		tBusy, err := c.rq.Start(m.Cmd)
 		if err != nil {
 			return err
 		}
@@ -647,7 +658,12 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 			return errors.New("aborted")
 		}
 		c.flushTimers()
-		c.rq.SetOrientation(b.EndOrient)
+		c.rq.SetOrientation(m.EndOrient)
+	}
+	if c.cfg().ReturnHome && c.rq.GetOrientation() == INVERT {
+		if err := c.rollHome(d, idx); err != nil {
+			return err
+		}
 	}
 	if isSolve {
 		c.mu.Lock()
@@ -656,6 +672,19 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 		c.mu.Unlock()
 	}
 	c.bus.Emit(map[string]any{"type": "run_done", "solve": isSolve})
+	return nil
+}
+
+// rollHome flips the cube back to the home orientation (the firmware's rotateCube).
+func (c *Controller) rollHome(d, idx int) error {
+	tBusy, err := c.rq.Start("SEQ " + fwRotateSeq(NORMAL, d))
+	if err != nil {
+		return err
+	}
+	c.schedule([]*TLEvent{{At: 100 + 4*d, Dur: d, Kind: "pose", Pose: ""}}, tBusy, idx)
+	c.rq.WaitIdle(30 * time.Second)
+	c.flushTimers()
+	c.rq.SetOrientation(NORMAL)
 	return nil
 }
 
@@ -792,6 +821,12 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	c.PushState()
 	if ok := <-c.beginCh; !ok || c.scanCancelled(s) {
 		return c.scanFail(errors.New("aborted"))
+	}
+	if useRobot && c.rq.GetOrientation() == INVERT { // a solve left the cube flipped
+		c.logf("info", "Flipping the cube back to its home orientation before scanning")
+		if err := c.rollHome(maxInt(d, 210), 0); err != nil {
+			return c.scanFail(err)
+		}
 	}
 	if useRobot { // every step starts from the clamped home pose: close the arms first if needed
 		st := c.rq.SliderStates()
