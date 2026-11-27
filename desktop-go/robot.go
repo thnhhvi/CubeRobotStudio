@@ -237,6 +237,7 @@ type Link struct {
 	sim      *Simulator
 	onLine   func(string)
 	onStatus func(bool, string)
+	onDrop   func(port, reason string) // the port vanished / failed while connected
 }
 
 func (l *Link) Connected() bool { l.mu.Lock(); defer l.mu.Unlock(); return l.rw != nil || l.sim != nil }
@@ -303,14 +304,22 @@ func (l *Link) reader(rw io.ReadWriteCloser, port string) {
 		}
 	}
 	l.mu.Lock()
-	still := l.rw == rw
+	still := l.rw == rw // false when the user disconnected on purpose
 	if still {
 		l.rw = nil
 		l.port = ""
 	}
 	l.mu.Unlock()
 	if still {
+		rw.Close()
+		reason := port + " closed"
+		if err := sc.Err(); err != nil {
+			reason = friendlySerialError(port, err)
+		}
 		l.onStatus(false, port)
+		if l.onDrop != nil {
+			l.onDrop(port, reason)
+		}
 	}
 }
 
@@ -438,6 +447,7 @@ type RobotQueue struct {
 	Orientation int
 	aborted     *Event
 	sliders     map[byte]byte // last known slider states (F B R L)
+	lowPower    bool          // servos on USB power: hold at C instead of L
 	statusCh    chan byte
 }
 
@@ -500,6 +510,12 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	q.idle.Wait(120 * time.Second)
 	q.busySeen.Clear()
 	q.idle.Clear()
+	q.mu.Lock()
+	low := q.lowPower
+	q.mu.Unlock()
+	if low && strings.HasPrefix(cmd, "SEQ ") && cmd != "SEQ C" {
+		cmd = "SEQ " + softenHolds(cmd[4:])
+	}
 	if logIt {
 		q.emit(map[string]any{"type": "log", "level": "tx", "msg": cmd})
 	}
@@ -538,6 +554,34 @@ func (q *RobotQueue) Run(cmd string) error {
 }
 
 func (q *RobotQueue) WaitIdle(d time.Duration) bool { return q.idle.Wait(d) }
+
+// SetLowPower switches low-power mode (holds at C, for servos powered from USB).
+func (q *RobotQueue) SetLowPower(on bool) { q.mu.Lock(); q.lowPower = on; q.mu.Unlock() }
+
+// softenHolds turns every slider clamp (L) into a light hold (C); delays and spinner
+// states are kept. Used in low-power mode so the servos draw far less current.
+func softenHolds(seq string) string {
+	var b strings.Builder
+	for i := 0; i < len(seq); {
+		if seq[i] >= '0' && seq[i] <= '9' {
+			b.WriteByte(seq[i])
+			i++
+			continue
+		}
+		if i+1 < len(seq) {
+			s, st := seq[i], seq[i+1]
+			if strings.IndexByte("FBRL", s) >= 0 && st == 'L' {
+				st = 'C'
+			}
+			b.WriteByte(s)
+			b.WriteByte(st)
+		} else {
+			b.WriteByte(seq[i])
+		}
+		i += 2
+	}
+	return b.String()
+}
 
 // SliderStates returns a copy of the last known slider states.
 func (q *RobotQueue) SliderStates() map[byte]byte {

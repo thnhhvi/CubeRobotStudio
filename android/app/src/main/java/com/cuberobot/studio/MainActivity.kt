@@ -33,6 +33,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONArray
@@ -48,7 +50,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), Link.Listener {
     companion object {
         const val GRAD = "gradient"
-        const val VERSION = "1.5"
+        const val VERSION = "1.6"
     }
     private var loadedHost: String? = null
 
@@ -66,6 +68,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     @Volatile private var reviewing = false
     @Volatile private var scanReady = false
     private lateinit var connectPanel: LinearLayout
+    private lateinit var connectHolder: View
     private lateinit var hostEdit: EditText
     private lateinit var camToggle: Button
 
@@ -143,20 +146,22 @@ class MainActivity : AppCompatActivity(), Link.Listener {
 
         // camera layer
         camLayer = FrameLayout(this).apply { visibility = View.GONE; setBackgroundColor(Color.BLACK) }
+        val camColumn = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val previewBox = FrameLayout(this)
         previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
         overlay = QuadOverlay(this).apply {
             load(prefs)
             onChanged = { save(prefs) }
         }
-        camLayer.addView(previewView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
-        camLayer.addView(overlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        previewBox.addView(previewView, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        previewBox.addView(overlay, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         val camPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.argb(200, 31, 30, 29))
-            setPadding(dp(14), dp(10), dp(14), dp(14))
+            setBackgroundColor(Color.parseColor("#1b1830"))
+            setPadding(dp(12), dp(8), dp(12), dp(10))
         }
         prompt = TextView(this).apply {
-            setTextColor(Color.WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE); textSize = 16f; typeface = Typeface.DEFAULT_BOLD
             text = "Drag the 4 blue corners onto the face the robot shows."
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
@@ -172,14 +177,17 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         confirmBtn.visibility = View.GONE
         camPanel.addView(prompt)
         camPanel.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
-        camLayer.addView(camPanel, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
+        // camera picture on top, prompt + buttons underneath (they no longer cover the grid)
+        camColumn.addView(previewBox, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
+        camColumn.addView(camPanel, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        camLayer.addView(camColumn, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         content.addView(camLayer, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         // connect panel
         connectPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setBackgroundColor(dark)
-            setPadding(dp(24), dp(40), dp(24), dp(24))
+            setPadding(dp(20), dp(24), dp(20), dp(20))
         }
         val title = TextView(this).apply {
             text = "Connect to Cube Robot Studio  v$VERSION"; setTextColor(Color.WHITE); textSize = 22f
@@ -211,9 +219,23 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         connectPanel.addView(hostEdit)
         connectPanel.addView(go, LinearLayout.LayoutParams(MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
         connectPanel.addView(auto, LinearLayout.LayoutParams(MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
-        content.addView(connectPanel, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
+        val connectScroll = android.widget.ScrollView(this).apply {
+            setBackgroundColor(dark)
+            isFillViewport = true
+            addView(connectPanel)
+        }
+        connectHolder = connectScroll
+        content.addView(connectScroll, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
         setContentView(root)
+        // Android 15 draws apps edge-to-edge: pad the whole UI by the system bars, display
+        // cutout and keyboard so the top bar (Camera / Link) is never under the status bar.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+            WindowInsetsCompat.CONSUMED
+        }
 
         link = Link(this)
         link.listener = this
@@ -276,7 +298,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     private fun setStatus(s: String) = ui.post { status.text = s }
 
     private fun showConnectPanel(show: Boolean) = ui.post {
-        connectPanel.visibility = if (show) View.VISIBLE else View.GONE
+        connectHolder.visibility = if (show) View.VISIBLE else View.GONE
     }
 
     private fun showCamera(show: Boolean) = ui.post {

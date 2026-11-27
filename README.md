@@ -21,7 +21,9 @@ Get both files from the latest release on the **Releases** tab. Every push to `m
 
 ## Connecting
 
-* **Robot:** in the laptop app, pick the Arduino's COM port and click **Connect**. *SIMULATOR* tries
+* **Robot:** in the laptop app, pick the Arduino's COM port and click **Connect**. Ports are listed with
+  their Windows names (as in Device Manager); the Arduino / CH340 one is marked ★ and pre-selected, and
+  the list refreshes by itself. If the Arduino drops off USB, the app explains why and reconnects. *SIMULATOR* tries
   everything without hardware. After connecting, the log shows *Arduino answered* and the four slider
   positions. If there is no reply: check the COM port, unplug the HC-05/06 from RX/TX, close the Arduino
   IDE Serial Monitor, and make sure the firmware was flashed with `CALIBRATE false`.
@@ -29,6 +31,14 @@ Get both files from the latest release on the **Releases** tab. Every push to `m
   another one). In the phone app, tap **Scan QR code** or type the code. The phone finds the laptop over
   USB (`adb reverse`, set up automatically if `adb` is installed), the laptop's network announcement, or a
   search of its own Wi-Fi subnet. Typing the laptop's IP address also works.
+
+## Power
+
+The 8 servos need the external **5 V, 3 A or more** supply described in the robot's README, sharing
+GND with the Arduino. The laptop's USB port gives only 0.5–0.9 A: the servos pull the voltage down, and
+the Arduino resets or vanishes from USB ("file not found", COM port coming and going). Until an external
+supply is connected, tick **Low-power mode** in the Robot panel. Sliders then hold at C (just touching)
+instead of pressing at L, and the arms are not kept powered while waiting during scans.
 
 ## Robot commands
 

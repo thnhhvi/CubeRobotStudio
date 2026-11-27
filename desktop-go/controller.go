@@ -25,6 +25,7 @@ type Settings struct {
 	ScanDelayMin    int     `json:"scan_delay_min"`
 	SolveTimeout    float64 `json:"solve_timeout"`
 	ReturnHome      bool    `json:"return_home"`
+	LowPower        bool    `json:"low_power"`
 }
 
 // ---------------------------------------------------------------- bus
@@ -98,6 +99,7 @@ type Controller struct {
 	confirmCh    chan string
 	beginCh      chan bool
 	heard        *Event
+	reconnecting bool
 	pairCode     string
 	timers       []*TLEvent
 	fireMu       sync.Mutex
@@ -126,7 +128,9 @@ func NewController() *Controller {
 	c.NewPairCode()
 	c.colors = solvedColors(c.settings.Front[0], c.settings.Top[0])
 	c.link = &Link{onLine: c.onLine, onStatus: c.onLinkStatus}
+	c.link.onDrop = c.onDrop
 	c.rq = NewRobotQueue(c.link, c.bus.Emit)
+	c.rq.SetLowPower(c.settings.LowPower)
 	go func() {
 		t0 := time.Now()
 		c.logf("info", "Building solver tables…")
@@ -267,7 +271,48 @@ func (c *Controller) Connect(port string) error {
 	return nil
 }
 
-func (c *Controller) Disconnect() { c.link.Disconnect(); c.PushState() }
+func (c *Controller) Disconnect() {
+	c.mu.Lock()
+	c.reconnecting = false // a manual disconnect stops auto-reconnect
+	c.mu.Unlock()
+	c.link.Disconnect()
+	c.PushState()
+}
+
+// onDrop: the Arduino vanished while connected (USB reset / brown-out / cable).
+// Any running job is stopped and the same port is reopened for up to 30 s.
+func (c *Controller) onDrop(port, reason string) {
+	c.logf("error", "%s", reason)
+	c.rq.Abort() // unblock whatever waited for the robot; state is unknown now
+	c.mu.Lock()
+	if c.busyTask == "solve" || c.busyTask == "scramble" {
+		c.stateKnown = false
+		c.warnings = append(c.warnings, "The robot dropped off USB during a move: the cube on screen may not match.")
+	}
+	if c.reconnecting {
+		c.mu.Unlock()
+		return
+	}
+	c.reconnecting = true
+	c.mu.Unlock()
+	go func() {
+		defer func() { c.mu.Lock(); c.reconnecting = false; c.mu.Unlock() }()
+		for i := 0; i < 30; i++ {
+			time.Sleep(time.Second)
+			c.mu.Lock()
+			want := c.reconnecting
+			c.mu.Unlock()
+			if !want || c.link.Connected() {
+				return
+			}
+			if err := c.Connect(port); err == nil {
+				c.logf("info", "Reconnected to %s", port)
+				return
+			}
+		}
+		c.logf("error", "Could not reconnect to %s - check the USB cable and the servo power supply, then Connect again.", port)
+	}()
+}
 
 func (c *Controller) requireRobot() error {
 	if !c.link.Connected() {
@@ -405,6 +450,8 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.SolveTimeout = toFloat(v)
 		case "return_home":
 			s.ReturnHome, _ = v.(bool)
+		case "low_power":
+			s.LowPower, _ = v.(bool)
 		}
 	}
 	if changed {
@@ -421,6 +468,7 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.settings = s
 	c.saveSettings()
 	c.mu.Unlock()
+	c.rq.SetLowPower(s.LowPower)
 	c.PushState()
 	return nil
 }
@@ -985,8 +1033,8 @@ func (c *Controller) holdPowered(useRobot bool) (stop func()) {
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
-		if !useRobot {
-			return
+		if !useRobot || c.cfg().LowPower {
+			return // low-power mode: no keep-alive (holding current would brown out USB)
 		}
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()

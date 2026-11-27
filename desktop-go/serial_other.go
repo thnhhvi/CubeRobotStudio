@@ -25,3 +25,5 @@ func listSerialPorts() []map[string]any {
 	}
 	return out
 }
+
+func friendlySerialError(port string, err error) string { return port + ": " + err.Error() }

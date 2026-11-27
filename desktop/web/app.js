@@ -201,6 +201,7 @@
     $("btn-calc").disabled = !S.solver_ready || !!S.busy_task;
     if (document.activeElement !== $("speed")) $("speed").value = S.settings.delay;
     $("speed-val").textContent = S.settings.delay + " ms";
+    $("low-power").checked = !!S.settings.low_power;
     $("pose-badge").textContent = S.pose === "INVERT" ? "flipped (U/D on arms)" : "home pose";
     const w = (S.warnings || []).map((x) => `<div class="warn">⚠ ${x}</div>`).join("");
     $("est").innerHTML = (S.solution_info && S.solution_info.robot_string
@@ -352,13 +353,23 @@
   }
 
   async function refreshPorts() {
-    const ports = await api("/api/ports");
+    const ports = await api("/api/ports").catch(() => null);
+    if (!ports) return;
     const sel = $("port");
+    if (document.activeElement === sel) return; // user is choosing
     const prev = sel.value;
-    sel.innerHTML = ports.map((p) => `<option value="${p.device}">${p.device}${p.arduino ? " (Arduino)" : ""} — ${p.description}</option>`).join("");
+    const label = (p) => {
+      const d = p.description || "";
+      const name = d.includes(p.device) ? d : `${p.device} — ${d}`;
+      return (p.arduino ? "★ " : "") + name + (p.bluetooth ? " · Bluetooth" : "");
+    };
+    const html = ports.map((p) => `<option value="${p.device}">${label(p)}</option>`).join("");
+    if (sel.innerHTML !== html) sel.innerHTML = html;
     const ard = ports.find((p) => p.arduino);
     sel.value = prev && ports.some((p) => p.device === prev) ? prev : ard ? ard.device : ports[0].device;
   }
+  // a port that appears later (USB plugged in, driver ready) shows up by itself
+  setInterval(() => { if (S && !S.robot.connected) refreshPorts(); }, 3000);
 
   // ------------------------------------------------------------------ wiring
   $("btn-refresh").onclick = refreshPorts;
@@ -374,6 +385,7 @@
   $("btn-reset").onclick = () => post("/api/reset");
   $("speed").oninput = (e) => ($("speed-val").textContent = e.target.value + " ms");
   $("speed").onchange = (e) => post("/api/settings", { delay: +e.target.value });
+  $("low-power").onchange = (e) => post("/api/settings", { low_power: e.target.checked });
   $("pb-first").onclick = () => previewTo(0);
   $("pb-prev").onclick = () => previewTo(pbPos - 1);
   $("pb-next").onclick = () => previewTo(pbPos + 1);

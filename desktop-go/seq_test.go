@@ -33,3 +33,14 @@ func TestSeqBatches(t *testing.T) {
 	t.Logf("face U at INVERT: %s", faceSeq('U', INVERT, 210))
 	t.Logf("face f: %s", faceSeq('f', NORMAL, 210))
 }
+
+func TestSoftenHolds(t *testing.T) {
+	in := "RLLLFRBR210fRbL210FLBL210RRLR210fCfCbCbC210RLLL210lR210LR210lClC210LL"
+	want := "RCLCFRBR210fRbL210FCBC210RRLR210fCfCbCbC210RCLC210lR210LR210lClC210LC"
+	if got := softenHolds(in); got != want {
+		t.Fatalf("\n got %s\nwant %s", got, want)
+	}
+	if got := softenHolds("FLBL500RLLL"); got != "FCBC500RCLC" {
+		t.Fatalf("close: %s", got)
+	}
+}
