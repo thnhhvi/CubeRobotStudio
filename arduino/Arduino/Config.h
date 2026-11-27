@@ -32,9 +32,9 @@
 // runtime with "GRIP <us>" (0..150).
 #define HARD_GRIP_US 40
 
-// Cube Robot Studio: keep every servo powered all the time (as in calibration mode), so
-// the arms keep holding and adjusting the cube between commands. The stock firmware
-// lets them go limp 3 s after a command. Servos get warm when they hold for long.
-#define KEEP_ATTACHED true
+// Cube Robot Studio: true = keep every servo powered all the time (as in calibration
+// mode). Off: like the stock firmware, the servos go limp 3 s after a command, which
+// draws far less power (the app re-sends the hold while a scanned face waits).
+#define KEEP_ATTACHED false
 
-#define CRS_FIRMWARE_VERSION "2.8"
+#define CRS_FIRMWARE_VERSION "2.9"

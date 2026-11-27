@@ -78,9 +78,8 @@ and one roll takes about as long as five face turns. So the app optimises robot 
 
 On random cubes this needs about 4 rolls per solve, against about 10 with the old flip-for-every-U/D scheme,
 at the cost of 1–2 extra face turns.
-* The stock firmware cuts power to the servos 3 s after a command; the app then re-sends the slider
-  positions every 2 s while a face waits for the camera. The Cube Robot Studio firmware keeps the servos
-  powered all the time, so no re-sending is needed.
+* The firmware cuts power to the servos 3 s after a command (to keep the power draw low). While a scanned
+  face waits for the camera, the app re-sends the slider positions every 2 s so the arms keep holding.
 
 ## Scanning
 

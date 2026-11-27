@@ -242,7 +242,7 @@ func (s *Simulator) receive(line string) {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
 	case "INFO":
-		s.later("OK CRS 2.8", 10*time.Millisecond)
+		s.later("OK CRS 2.9", 10*time.Millisecond)
 	case "GRIP":
 		g := "40"
 		if len(parts) == 2 {
@@ -592,7 +592,7 @@ func (q *RobotQueue) QuerySliders() {
 }
 
 // ProbeFirmware asks "INFO": the Cube Robot Studio firmware answers "OK CRS <version>"
-// (hard grip H, servos always powered); the stock firmware answers "ERR cmd: INFO".
+// (hard grip H); the stock firmware answers "ERR cmd: INFO".
 func (q *RobotQueue) ProbeFirmware() bool {
 	if q.CalibrationFirmware() {
 		return false
@@ -631,7 +631,7 @@ func (q *RobotQueue) SetGrip(us int) {
 	}
 }
 
-// CRSFirmware: the Cube Robot Studio firmware runs (H state, GRIP, always powered).
+// CRSFirmware: the Cube Robot Studio firmware runs (H state, GRIP).
 func (q *RobotQueue) CRSFirmware() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.fwVersion != "" }
 
 func (q *RobotQueue) Abort() {

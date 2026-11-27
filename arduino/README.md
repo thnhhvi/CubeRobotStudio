@@ -19,15 +19,15 @@
    further than its L position. The app uses it for the pair carrying the cube while flipping it and sets
    the amount with `GRIP <us>` (Flip grip in the Robot panel, 0–150).
 
-3. **Servos always powered** (`KEEP_ATTACHED true`), like in calibration mode: the arms keep holding
-   between commands instead of going limp 3 s after each one. The servos get warm when they hold for
-   a long time.
+3. **`KEEP_ATTACHED`** (default `false`): like the stock firmware the servos go limp 3 s after a command,
+   which keeps the power draw low. `true` keeps them powered all the time, as in calibration mode (draws
+   a lot of current while holding).
 
 4. **`INFO`** answers `OK CRS <version>`, so the app knows this firmware runs.
 
 Servo motion is the stock firmware's (each servo jumps to its new position at full speed).
 
-On boot the firmware prints `Cube Robot Studio firmware 2.8 (INFO GRIP, H state)`; the app shows the
+On boot the firmware prints `Cube Robot Studio firmware 2.9 (INFO GRIP, H state)`; the app shows the
 version in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
 
 ## Upload
@@ -36,7 +36,7 @@ version in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unc
 2. Open `Arduino/Arduino.ino` in the Arduino IDE, board **Arduino Nano** (processor *ATmega328P (Old
    Bootloader)* if the upload fails), select the COM port, **Upload**.
 3. Close the Serial Monitor, then Connect in Cube Robot Studio. The log shows
-   "Cube Robot Studio firmware 2.8".
+   "Cube Robot Studio firmware 2.9".
 
 Your **calibration is kept**: it lives in the EEPROM, which an upload does not erase.
 

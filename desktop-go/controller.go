@@ -294,7 +294,7 @@ func orStr(a, b string) string {
 func (c *Controller) checkFirmware() {
 	if c.rq.ProbeFirmware() {
 		c.rq.SetGrip(c.cfg().FlipGripUs)
-		c.logf("info", "Cube Robot Studio firmware %s: flips clamp %d µs harder, servos stay powered",
+		c.logf("info", "Cube Robot Studio firmware %s: flips clamp %d µs harder",
 			c.rq.FirmwareVersion(), c.cfg().FlipGripUs)
 	} else if !c.rq.CalibrationFirmware() {
 		c.logf("info", "Stock firmware: flips clamp at L (no hard grip) and the servos go limp 3 s after a command. "+
@@ -1205,9 +1205,6 @@ func (c *Controller) holdPowered(useRobot bool) (stop func()) {
 		defer close(finished)
 		if !useRobot || c.cfg().LowPower {
 			return // low-power mode: no keep-alive (holding current would brown out USB)
-		}
-		if c.rq.FirmwareVersion() != "" {
-			return // firmware 2.5+ keeps the servos powered: no keep-alive commands needed
 		}
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()
