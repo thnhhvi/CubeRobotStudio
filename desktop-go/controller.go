@@ -1,6 +1,7 @@
 package main
 
 import (
+	crand "crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,6 +92,7 @@ type Controller struct {
 	rq           *RobotQueue
 	captureCh    chan map[string]any
 	heard        *Event
+	pairCode     string
 	timers       []*TLEvent
 	fireMu       sync.Mutex
 }
@@ -115,6 +117,7 @@ func NewController() *Controller {
 		c.settings.Front, c.settings.Top = "R", "W"
 	}
 	c.plan = loadPlan(c.cfgDir)
+	c.NewPairCode()
 	c.colors = solvedColors(c.settings.Front[0], c.settings.Top[0])
 	c.link = &Link{onLine: c.onLine, onStatus: c.onLinkStatus}
 	c.rq = NewRobotQueue(c.link, c.bus.Emit)
@@ -185,7 +188,7 @@ func (c *Controller) Snapshot() map[string]any {
 		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": c.solutionInfo,
 		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": c.thumbs,
 		"scanned": append([]string{}, c.scanned...), "phones": phones,
-		"warnings": append([]string{}, c.warnings...),
+		"warnings": append([]string{}, c.warnings...), "pair_code": c.pairCode,
 	}
 }
 
@@ -806,4 +809,28 @@ func (c *Controller) PhoneHello(info map[string]any) {
 	c.phones[id] = info
 	c.mu.Unlock()
 	c.PushState()
+}
+
+// ---------------------------------------------------------------- phone pairing
+// A 6-digit code shown on the laptop (as digits and inside the QR code). The phone
+// app finds the laptop that shows this code (UDP beacon, then a scan of its own subnet).
+func (c *Controller) NewPairCode() string {
+	var b [4]byte
+	crand.Read(b[:])
+	n := (uint32(b[0])<<24 | uint32(b[1])<<16 | uint32(b[2])<<8 | uint32(b[3])) % 1000000
+	code := fmt.Sprintf("%06d", n)
+	c.mu.Lock()
+	c.pairCode = code
+	c.mu.Unlock()
+	return code
+}
+
+func (c *Controller) PairCode() string { c.mu.Lock(); defer c.mu.Unlock(); return c.pairCode }
+
+func (c *Controller) Pair(code string) error {
+	if strings.TrimSpace(code) != c.PairCode() {
+		return errors.New("wrong code")
+	}
+	c.logf("info", "Phone paired with code %s", code)
+	return nil
 }

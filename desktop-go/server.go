@@ -101,7 +101,9 @@ func newMux(c *Controller) *http.ServeMux {
 		writeJSON(w, 200, p)
 	})
 	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"app": "CubeRobotStudio", "port": httpPort, "ips": localIPs()})
+		host, _ := os.Hostname()
+		writeJSON(w, 200, map[string]any{"app": "CubeRobotStudio", "port": httpPort, "ips": localIPs(),
+			"name": host, "code": c.PairCode()})
 	})
 	mux.HandleFunc("/api/plan", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
@@ -154,6 +156,8 @@ func newMux(c *Controller) *http.ServeMux {
 	post("/api/scan/cancel", func(map[string]any) error { c.CancelScan(); return nil })
 	post("/api/plan/reset", func(map[string]any) error { return c.SetPlan(defaultPlan()) })
 	post("/api/phone/hello", func(b map[string]any) error { c.PhoneHello(b); return nil })
+	post("/api/pair", func(b map[string]any) error { s, _ := b["code"].(string); return c.Pair(s) })
+	post("/api/pair/new", func(map[string]any) error { c.NewPairCode(); c.PushState(); return nil })
 	post("/api/quit", func(map[string]any) error {
 		go func() { time.Sleep(300 * time.Millisecond); os.Exit(0) }()
 		return nil
@@ -169,12 +173,13 @@ func reply(w http.ResponseWriter, err error) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-func beacon() {
+func beacon(c *Controller) {
 	addr := &net.UDPAddr{IP: net.IPv4bcast, Port: discoveryPort}
 	host, _ := os.Hostname()
 	for {
 		if conn, err := net.DialUDP("udp4", nil, addr); err == nil {
-			msg, _ := json.Marshal(map[string]any{"app": "CubeRobotStudio", "port": httpPort, "name": host, "ips": localIPs()})
+			msg, _ := json.Marshal(map[string]any{"app": "CubeRobotStudio", "port": httpPort, "name": host,
+				"ips": localIPs(), "code": c.PairCode()})
 			conn.Write(msg)
 			conn.Close()
 		}

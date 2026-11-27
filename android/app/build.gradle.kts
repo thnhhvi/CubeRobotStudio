@@ -11,8 +11,8 @@ android {
         applicationId = "com.cuberobot.studio"
         minSdk = 24
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "1.3"
     }
 
     buildTypes {
@@ -35,6 +35,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     val camerax = "1.3.4"
     implementation("androidx.camera:camera-core:$camerax")
     implementation("androidx.camera:camera-camera2:$camerax")

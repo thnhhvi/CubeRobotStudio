@@ -247,6 +247,7 @@
     renderNet();
     renderScanSteps();
     renderRobot();
+    renderPair();
     if (first && st.pose === "INVERT") view.setPose(["z'"], 1);
     if (!running) {
       if (first || st.colors !== prevColors) {
@@ -359,6 +360,23 @@
   buildNet();
   refreshPorts();
   loadPlan();
-  api("/api/info").then((i) => ($("ips").innerHTML = i.ips.map((ip) => `${ip}:${i.port}`).join("<br>") || "no network"));
+  let INFO = null;
+  function renderPair() {
+    if (!INFO || !S || !S.pair_code) return;
+    if (renderPair._code === S.pair_code) return;
+    renderPair._code = S.pair_code;
+    const c = S.pair_code;
+    $("pair-code").textContent = c.slice(0, 3) + " " + c.slice(3);
+    const url = `cuberobot://pair?code=${c}&port=${INFO.port}&hosts=${INFO.ips.join(",")}` +
+      `&name=${encodeURIComponent(INFO.name || "laptop")}`;
+    try { QR.draw($("qr"), url, { size: 132, dark: "#0600AB" }); } catch (e) { log("QR: " + e.message, "error"); }
+  }
+  api("/api/info").then((i) => {
+    INFO = i;
+    $("ips").textContent = i.ips.map((ip) => `${ip}:${i.port}`).join(", ") || "no network";
+    renderPair();
+  });
+  $("pair-new").onclick = () => post("/api/pair/new");
+  $("chip-phone").onclick = () => { $("phone-box").open = true; $("phone-box").scrollIntoView({ behavior: "smooth" }); };
   connectEvents();
 })();

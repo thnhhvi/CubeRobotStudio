@@ -33,6 +33,8 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.Executors
@@ -75,6 +77,19 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     private var autoCaptureRunnable: Runnable? = null
 
     private val prefs by lazy { getSharedPreferences("cuberobot", MODE_PRIVATE) }
+
+    private val qrScan = registerForActivityResult(ScanContract()) { result ->
+        val txt = result.contents
+        if (txt != null) link.connectWithQr(txt)
+    }
+
+    private fun scanQr() {
+        qrScan.launch(ScanOptions()
+            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+            .setPrompt("Scan the QR code shown in Cube Robot Studio on the laptop")
+            .setBeepEnabled(false)
+            .setOrientationLocked(false))
+    }
 
     private val camPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (ok) startCamera() else setStatus("Camera permission is needed to scan")
@@ -161,23 +176,29 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         }
         val help = TextView(this).apply {
             setTextColor(Color.parseColor("#a29fc2")); textSize = 14f
-            text = "• Wi-Fi: phone and laptop on the same network – found automatically.\n" +
-                "• USB (OTG cable/USB debugging): the laptop app runs adb reverse – found automatically.\n" +
-                "• Bluetooth: turn on Bluetooth tethering (PAN) between phone and laptop, then enter " +
-                "the laptop's address below.\n\nLaptop address (shown in the laptop app):"
+            text = "Open \"Pair a phone\" in Cube Robot Studio on the laptop, then scan its QR code " +
+                "or type the 6-digit code.\n\nPhone and laptop on the same Wi-Fi, or a USB cable with " +
+                "USB debugging on. (Bluetooth tethering also works.)"
+        }
+        val qrBtn = bigButton("Scan QR code", GRAD) { scanQr() }
+        val orText = TextView(this).apply {
+            setTextColor(Color.parseColor("#a29fc2")); textSize = 13f
+            text = "or type the 6-digit code (or the laptop address):"
         }
         hostEdit = EditText(this).apply {
-            setText(prefs.getString("host", "") ?: "")
-            hint = "192.168.1.20"
+            hint = "123 456"
             setTextColor(Color.WHITE); setHintTextColor(Color.GRAY)
+            textSize = 26f
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
         }
-        val go = bigButton("Connect", GRAD) { link.connectTo(hostEdit.text.toString()) }
-        val auto = bigButton("Search again", "#24203d") { link.autoConnect(prefs.getString("host", null)) }
+        val go = bigButton("Connect", "#24203d") { connectFromInput() }
+        val auto = bigButton("Search automatically", "#24203d") { link.autoConnect(prefs.getString("host", null)) }
         connectPanel.addView(title)
         connectPanel.addView(help, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(12) })
+        connectPanel.addView(qrBtn, LinearLayout.LayoutParams(MATCH_PARENT, dp(56)).apply { topMargin = dp(20) })
+        connectPanel.addView(orText, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(20) })
         connectPanel.addView(hostEdit)
-        connectPanel.addView(go, LinearLayout.LayoutParams(MATCH_PARENT, dp(52)).apply { topMargin = dp(12) })
+        connectPanel.addView(go, LinearLayout.LayoutParams(MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
         connectPanel.addView(auto, LinearLayout.LayoutParams(MATCH_PARENT, dp(52)).apply { topMargin = dp(8) })
         content.addView(connectPanel, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
 
@@ -196,6 +217,16 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         super.onDestroy()
         link.stop()
         analysisExec.shutdown()
+    }
+
+    private fun connectFromInput() {
+        val raw = hostEdit.text.toString().trim()
+        val digits = raw.filter { it.isDigit() }
+        when {
+            raw.isEmpty() -> setStatus("Type the 6-digit code shown on the laptop")
+            digits.length == 6 && !raw.contains('.') -> link.connectWithCode(digits)
+            else -> link.connectTo(raw)
+        }
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()

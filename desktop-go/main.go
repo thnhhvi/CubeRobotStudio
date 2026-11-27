@@ -39,7 +39,7 @@ func main() {
 			log.Fatalf("HTTP server: %v (is Cube Robot Studio already running?)", err)
 		}
 	}()
-	go beacon()
+	go beacon(c)
 	go adbReverseLoop(c)
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/", httpPort)
@@ -47,7 +47,7 @@ func main() {
 	fmt.Println(" Cube Robot Studio")
 	fmt.Println("==============================================")
 	fmt.Println(" Laptop UI :", url)
-	fmt.Println(" Phone app (APK): tap Connect - found automatically on Wi-Fi / USB.")
+	fmt.Println(" Phone app (APK): scan the QR code in the window, or type code", c.PairCode())
 	fmt.Println(" Manual address for the phone app:")
 	for _, ip := range ips {
 		fmt.Printf("     %s:%d\n", ip, httpPort)

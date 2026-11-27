@@ -101,11 +101,17 @@
     <div class="est" id="est"></div>
 
     <details class="box" id="phone-box" open>
-      <summary>Phone link</summary>
-      <div class="small">Install the APK, then on the phone tap <b>Connect</b>. It finds this laptop
-        automatically on Wi-Fi, or over USB (adb reverse is set up automatically when <code>adb</code> is found).
-        Manual address:</div>
-      <div class="ips" id="ips"></div>
+      <summary>Pair a phone</summary>
+      <div class="pair">
+        <canvas id="qr" title="Scan with the Cube Robot app"></canvas>
+        <div>
+          <div class="small">In the phone app tap <b>Scan QR</b>, or type this code:</div>
+          <div class="code" id="pair-code">––––––</div>
+          <button class="ghost small-btn" id="pair-new">New code</button>
+        </div>
+      </div>
+      <div class="small">Phone and laptop on the same Wi-Fi, or USB cable with USB debugging on.
+        Laptop address: <span class="ips" id="ips"></span></div>
       <label class="check"><input type="checkbox" id="auto-capture"> Auto-capture when the face is presented</label>
     </details>
 
@@ -128,6 +134,7 @@
   </section>
 </main>
 <div class="toast hidden" id="toast"></div>
+<script src="qr.js"></script>
 <script src="cube3d.js"></script>
 <script src="app.js"></script>
 </body>
