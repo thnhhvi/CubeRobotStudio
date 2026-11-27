@@ -74,6 +74,7 @@ func TestAppFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "slider query", func() bool { return len(c.rq.SliderStates()) == 4 })
+	waitFor(t, "glide", func() bool { return c.rq.Glide() })
 
 	for _, f := range []func() error{c.CloseArms, c.OpenArms, c.CloseArms} {
 		if err := f(); err != nil {

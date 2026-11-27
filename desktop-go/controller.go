@@ -212,7 +212,7 @@ func (c *Controller) Snapshot() map[string]any {
 		"speed_range": []int{speedMin, speedMax},
 		"robot": map[string]any{"connected": c.link.Connected(), "port": c.link.Port(),
 			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation(),
-			"calibration_fw": c.rq.CalibrationFirmware()},
+			"calibration_fw": c.rq.CalibrationFirmware(), "glide": c.rq.Glide()},
 		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": info,
 		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": thumbs,
 		"scanned": append([]string{}, c.scanned...), "scan_steps": c.scanSteps(), "phones": phones,
@@ -255,6 +255,7 @@ func (c *Controller) Connect(port string) error {
 	if port == "SIMULATOR" {
 		c.link.Send("PING")
 		c.rq.QuerySliders()
+		c.checkGlide()
 		return nil
 	}
 	// The Nano resets when the port opens: wait for its banner, then PING.
@@ -271,6 +272,7 @@ func (c *Controller) Connect(port string) error {
 			c.logf("info", "Arduino answered on %s", port)
 			c.rq.QuerySliders()
 			c.logf("info", "Slider positions: %s", c.sliderText())
+			c.checkGlide()
 			return nil
 		}
 	}
@@ -278,6 +280,21 @@ func (c *Controller) Connect(port string) error {
 		"Bluetooth module unplugged from RX/TX while using USB; firmware flashed with CALIBRATE false; "+
 		"Serial Monitor in the Arduino IDE closed.", port)
 	return nil
+}
+
+const glideHelp = "This is the stock firmware: when two spinners turn together (cube rolls while " +
+	"scanning, flips while solving) one can run ahead and turn a single face instead of the whole cube. " +
+	"Upload the firmware from the arduino/Arduino folder of Cube Robot Studio (CubeRobotFirmware.zip on the " +
+	"release page): it moves paired spinners on one timed path so they stay in sync. Your calibration is kept."
+
+// checkGlide turns on synced spinner moves when the firmware has them, else warns.
+func (c *Controller) checkGlide() {
+	if c.rq.EnableGlide() {
+		c.logf("info", "Firmware glide on: spinners that turn together move in sync")
+	} else if !c.rq.CalibrationFirmware() {
+		c.logf("error", glideHelp)
+	}
+	c.PushState()
 }
 
 func (c *Controller) Disconnect() {

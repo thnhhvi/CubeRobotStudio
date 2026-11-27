@@ -187,7 +187,8 @@
     $("robot-state").textContent = S.busy_task ? `${st} · ${S.busy_task}` : st;
     $("robot-state").className = "big " + st;
     chip("chip-robot", r.connected ? (r.calibration_fw ? "" : r.state === "BUSY" ? "busy" : "on") : "",
-      r.connected ? (r.calibration_fw ? `Robot: ${r.port} ⚠ calibration firmware` : `Robot: ${r.port}`) : "Robot: offline");
+      r.connected ? (r.calibration_fw ? `Robot: ${r.port} ⚠ calibration firmware`
+        : r.glide ? `Robot: ${r.port}` : `Robot: ${r.port} ⚠ stock firmware (spinners not synced)`) : "Robot: offline");
     if (r.calibration_fw && !calibWarned) {
       calibWarned = true;
       toast("⚠ The Arduino runs the CALIBRATION firmware - set CALIBRATE false in Config.h and upload again", "error");

@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSeqBatches(t *testing.T) {
@@ -61,5 +62,19 @@ func TestCalibrationFirmwareBlocked(t *testing.T) {
 	q.OnLine("Listening for API commands, type 'HELP' for list of commands.")
 	if q.CalibrationFirmware() {
 		t.Fatal("normal firmware banner should clear the flag")
+	}
+}
+
+func TestGlideStockFirmware(t *testing.T) {
+	l := &Link{onLine: func(string) {}, onStatus: func(bool, string) {}}
+	q := NewRobotQueue(l, func(map[string]any) {})
+	l.sim = &Simulator{out: func(s string) {}} // swallows GLIDE: answer like the stock firmware
+	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("ERR cmd: GLIDE") }()
+	if q.EnableGlide() || q.Glide() {
+		t.Fatal("stock firmware reported as glide-capable")
+	}
+	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("OK GLIDE 1") }()
+	if !q.EnableGlide() {
+		t.Fatal("glide firmware not recognised")
 	}
 }

@@ -67,8 +67,16 @@ func rotateCubeSeq(o, d int) string {
 		s, s, mid, h, pre, h, s, s, mid, h, h, s)
 }
 
-// halfStep is the wait for each 45 deg half of a paired spinner move.
-func halfStep(d int) int { return d/2 + 40 }
+// halfStep is the wait for each 45 deg half of a paired spinner move. At least 300 ms:
+// with the GLIDE firmware both grippers glide over 85% of it (~45 deg in 255 ms, slow
+// enough for the servos to follow the timed path), without it each half still finishes
+// before the next one starts.
+func halfStep(d int) int {
+	if h := d/2 + 40; h > 300 {
+		return h
+	}
+	return 300
+}
 
 // sliderWait is how long a slider group gets before any spinner may move: sliders
 // travel further than a gripper quarter turn, so fast speeds would let a spinner start
@@ -354,6 +362,7 @@ type Simulator struct {
 	busy   bool
 	cancel chan struct{}
 	state  map[byte]byte
+	glide  bool
 }
 
 func (s *Simulator) later(msg string, d time.Duration) {
@@ -369,6 +378,15 @@ func (s *Simulator) receive(line string) {
 	switch parts[0] {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
+	case "GLIDE":
+		if len(parts) == 2 {
+			s.glide = parts[1] != "0"
+		}
+		g := "0"
+		if s.glide {
+			g = "1"
+		}
+		s.later("OK GLIDE "+g, 10*time.Millisecond)
 	case "STATUS":
 		if len(parts) == 2 && len(parts[1]) == 1 {
 			st := byte('C')
@@ -474,11 +492,14 @@ type RobotQueue struct {
 	lowPower    bool          // servos on USB power: hold at C instead of L
 	calibFW     bool          // Arduino runs the calibration firmware (CALIBRATE true)
 	statusCh    chan byte
+	glideCh     chan bool
+	glide       bool // firmware supports GLIDE (paired spinners move in sync)
 }
 
 func NewRobotQueue(l *Link, emit func(map[string]any)) *RobotQueue {
 	return &RobotQueue{link: l, emit: emit, State: "IDLE", idle: NewEvent(true), busySeen: NewEvent(false),
-		aborted: NewEvent(false), sliders: map[byte]byte{}, statusCh: make(chan byte, 4)}
+		aborted: NewEvent(false), sliders: map[byte]byte{}, statusCh: make(chan byte, 4),
+		glideCh: make(chan bool, 2)}
 }
 
 // calibration firmware prints e.g. "Selected Servo: 0 (RIGHT_SPINNER) | Mode: CENTER ..."
@@ -510,6 +531,13 @@ func (q *RobotQueue) OnLine(line string) {
 		q.mu.Lock()
 		q.calibFW = false
 		q.mu.Unlock()
+	}
+	if strings.HasPrefix(line, "OK GLIDE") || line == "ERR cmd: GLIDE" {
+		select { // reply to "GLIDE 1" (stock firmware: unknown command)
+		case q.glideCh <- strings.HasPrefix(line, "OK GLIDE 1"):
+		default:
+		}
+		return
 	}
 	if len(line) == 1 && strings.Contains("RCLrl", line) {
 		select { // reply to "STATUS <servo>"
@@ -677,6 +705,30 @@ func (q *RobotQueue) QuerySliders() {
 		}
 	}
 }
+
+// EnableGlide turns on the firmware's synced spinner glide ("GLIDE 1"); false when the
+// firmware is the stock one (no GLIDE command).
+func (q *RobotQueue) EnableGlide() bool {
+	if q.CalibrationFirmware() {
+		return false
+	}
+	for len(q.glideCh) > 0 {
+		<-q.glideCh
+	}
+	ok := false
+	if q.link.Send("GLIDE 1") == nil {
+		select {
+		case ok = <-q.glideCh:
+		case <-time.After(1500 * time.Millisecond):
+		}
+	}
+	q.mu.Lock()
+	q.glide = ok
+	q.mu.Unlock()
+	return ok
+}
+
+func (q *RobotQueue) Glide() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.glide }
 
 func (q *RobotQueue) Abort() {
 	q.mu.Lock()

@@ -53,7 +53,9 @@ Safety rules for every command the app sends (solve, scramble, scan):
   first, then the other arm lets go.
 * **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
 * **Spinners in sync.** When two spinners turn together (cube rolls), each 90° turn is split into two 45°
-  halves, so both grippers pass the same waypoint and neither runs ahead.
+  halves of at least 300 ms. With the firmware in `arduino/Arduino` (release: `CubeRobotFirmware.zip`)
+  both grippers glide along one timed path, so neither can run ahead and turn a single face. The stock
+  firmware jumps at full servo speed; the app then shows "stock firmware (spinners not synced)".
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
@@ -114,7 +116,7 @@ scan, retake, confirm, solve, abort and close.
 
 ## Arduino wiring used here
 
-`arduino/Config.h` has the D2–D9 pin map: front spinner/slider D2/D3, back D4/D5, right D6/D7,
+`arduino/Arduino/Config.h` (firmware, see `arduino/README.md`) has the D2–D9 pin map: front spinner/slider D2/D3, back D4/D5, right D6/D7,
 left D8/D9. Recalibrate after rewiring. In calibration mode the servo numbers follow type, not pin.
 
 ## Layout

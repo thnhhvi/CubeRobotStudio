@@ -1,21 +1,37 @@
-# Arduino pin map used with this project
+# Firmware for Cube Robot Studio
 
-`Config.h` here is the stock firmware config (Yonni123/RubiksCubeRobot) with the servo pins set to this wiring:
+`Arduino/` is the Yonni123/RubiksCubeRobot firmware with two changes:
 
-| Pin | Servo | `Config.h` define |
-|---|---|---|
-| D2 | front spinner | `FRONT_SPINNER_PIN 2` |
-| D3 | front slider | `FRONT_SLIDER_PIN 3` |
-| D4 | back spinner | `BACK_SPINNER_PIN 4` |
-| D5 | back slider | `BACK_SLIDER_PIN 5` |
-| D6 | right spinner | `RIGHT_SPINNER_PIN 6` |
-| D7 | right slider | `RIGHT_SLIDER_PIN 7` |
-| D8 | left spinner | `LEFT_SPINNER_PIN 8` |
-| D9 | left slider | `LEFT_SLIDER_PIN 9` |
+1. **Pins** (`Config.h`) set to this wiring, `CALIBRATE false`:
 
-Copy it over `Arduino/Config.h` of the firmware. No other firmware file needs to change, and the laptop/phone
-apps do not depend on the pins.
+   | Pin | Servo | `Config.h` define |
+   |---|---|---|
+   | D2 | front spinner | `FRONT_SPINNER_PIN 2` |
+   | D3 | front slider | `FRONT_SLIDER_PIN 3` |
+   | D4 | back spinner | `BACK_SPINNER_PIN 4` |
+   | D5 | back slider | `BACK_SLIDER_PIN 5` |
+   | D6 | right spinner | `RIGHT_SPINNER_PIN 6` |
+   | D7 | right slider | `RIGHT_SLIDER_PIN 7` |
+   | D8 | left spinner | `LEFT_SPINNER_PIN 8` |
+   | D9 | left slider | `LEFT_SLIDER_PIN 9` |
+
+2. **Synced spinners (`GLIDE` command).** With the stock firmware every servo jumps to its new position
+   at full speed. When two spinners turn together to roll the cube, one of them is always a bit faster,
+   and on a light speed cube that is enough to turn one face instead of the whole cube. With `GLIDE 1`
+   (the app sends it on Connect), spinners commanded in the same step move along one timed, smooth path
+   over 85% of the delay that follows the step, so they stay in sync. Sliders and single spinner moves
+   are unchanged. The `SEQ`/`MOVE`/`STATUS`/`PING` API is unchanged.
+
+## Upload
+
+1. Download `CubeRobotFirmware.zip` from the release page and unzip it.
+2. Open `Arduino/Arduino.ino` in the Arduino IDE, board **Arduino Nano** (processor *ATmega328P (Old
+   Bootloader)* if the upload fails), select the COM port, **Upload**.
+3. Close the Serial Monitor, then Connect in Cube Robot Studio. The log shows
+   "Firmware glide on: spinners that turn together move in sync".
+
+Your **calibration is kept**: it lives in the EEPROM, which an upload does not erase.
 
 Calibration mode (`CALIBRATE true`) numbers the servos by type, **not** by pin:
 0 right spinner, 1 right slider, 2 left spinner, 3 left slider, 4 front spinner, 5 front slider,
-6 back spinner, 7 back slider. Re-run the calibration after rewiring (values are stored per servo type in EEPROM).
+6 back spinner, 7 back slider.

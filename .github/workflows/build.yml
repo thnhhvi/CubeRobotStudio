@@ -58,6 +58,11 @@ jobs:
           DUMP_SEQ=/tmp/seqs.json DUMP_PLAN=/tmp/plan.json go test -count=1 -run 'TestDump' .
           python ../tools/check_robot_commands.py solve /tmp/seqs.json
           python ../tools/check_robot_commands.py scan /tmp/plan.json
+      - name: Firmware glide (synced spinners) host test
+        run: |
+          g++ -std=gnu++17 -I tools/firmware_host_test -I arduino/Arduino tools/firmware_host_test/glide_test.cpp \
+            arduino/Arduino/MyServo.cpp arduino/Arduino/SequenceManager.cpp -o /tmp/glide
+          /tmp/glide
 
   android-apk:
     runs-on: ubuntu-latest
@@ -88,11 +93,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
+      - name: Firmware zip (open Arduino/Arduino.ino in the Arduino IDE)
+        run: cd arduino && zip -r ../out/CubeRobotFirmware.zip Arduino
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             out/CubeRobotStudio-exe/CubeRobotStudio.exe
             out/CubeRobotScanner-apk/CubeRobotScanner.apk
+            out/CubeRobotFirmware.zip
