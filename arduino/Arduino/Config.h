@@ -37,4 +37,8 @@
 // draws far less power (the app re-sends the hold while a scanned face waits).
 #define KEEP_ATTACHED false
 
-#define CRS_FIRMWARE_VERSION "2.9"
+// Cube Robot Studio: when the servos wake up for a command they are powered one at a
+// time, this many ms apart (8 servos x 12 ms fits in the 100 ms before a SEQ starts).
+#define ATTACH_STAGGER_MS 12
+
+#define CRS_FIRMWARE_VERSION "3.1"

@@ -137,6 +137,21 @@ void attachAllServos()
     }
 }
 
+void attachServosStaggered()
+{
+    static unsigned long lastAttach = 0;
+    for (int i = 0; i < NUM_SERVOS; i++)
+    {
+        if (servos[i].isAttached())
+            continue;
+        if (millis() - lastAttach < ATTACH_STAGGER_MS)
+            return;
+        servos[i].attach();
+        lastAttach = millis();
+        return;
+    }
+}
+
 void detachAllServos()
 {
     for (int i = 0; i < NUM_SERVOS; i++)

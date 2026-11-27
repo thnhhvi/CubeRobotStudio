@@ -242,7 +242,7 @@ func (s *Simulator) receive(line string) {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
 	case "INFO":
-		s.later("OK CRS 2.9", 10*time.Millisecond)
+		s.later("OK CRS 3.1", 10*time.Millisecond)
 	case "GRIP":
 		g := "40"
 		if len(parts) == 2 {

@@ -25,9 +25,13 @@
 
 4. **`INFO`** answers `OK CRS <version>`, so the app knows this firmware runs.
 
+5. **Servos wake one at a time** (`ATTACH_STAGGER_MS`, 12 ms apart) when a command arrives after they went
+   limp, instead of all eight in the same instant. Each servo jumps to its position when it is powered;
+   eight at once can pull the 5 V down so far that some of them do not move.
+
 Servo motion is the stock firmware's (each servo jumps to its new position at full speed).
 
-On boot the firmware prints `Cube Robot Studio firmware 2.9 (INFO GRIP, H state)`; the app shows the
+On boot the firmware prints `Cube Robot Studio firmware 3.1 (INFO GRIP, H state)`; the app shows the
 version in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
 
 ## Upload
@@ -36,7 +40,7 @@ version in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unc
 2. Open `Arduino/Arduino.ino` in the Arduino IDE, board **Arduino Nano** (processor *ATmega328P (Old
    Bootloader)* if the upload fails), select the COM port, **Upload**.
 3. Close the Serial Monitor, then Connect in Cube Robot Studio. The log shows
-   "Cube Robot Studio firmware 2.9".
+   "Cube Robot Studio firmware 3.1".
 
 Your **calibration is kept**: it lives in the EEPROM, which an upload does not erase.
 

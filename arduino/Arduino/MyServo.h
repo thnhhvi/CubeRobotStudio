@@ -60,6 +60,8 @@ public:
 
     void attach();
 
+    bool isAttached() const { return attached; }
+
     void detach();
 };
 
@@ -70,3 +72,8 @@ extern MyServo servos[NUM_SERVOS];
 void attachAllServos();
 
 void detachAllServos();
+
+// Cube Robot Studio: wake the servos one at a time (ATTACH_STAGGER_MS apart) instead of
+// all eight in the same instant: each servo jumps to its position when it is powered,
+// and eight at once can pull the supply down so far that some do not move.
+void attachServosStaggered();

@@ -17,8 +17,10 @@ void loop() {
 #if KEEP_ATTACHED
     attachAllServos();  // Cube Robot Studio: servos always powered, like in calibration mode
 #else
-    if (millis() - seqManager.idleTimeMs < 3000 || seqManager.isBusy() || CALIBRATE)
+    if (CALIBRATE)
         attachAllServos();
+    else if (millis() - seqManager.idleTimeMs < 3000 || seqManager.isBusy())
+        attachServosStaggered();   // Cube Robot Studio: one at a time (power surge)
     else
         detachAllServos();
 #endif

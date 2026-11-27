@@ -62,6 +62,18 @@ int main(int argc, char** argv) {
     seqManager.startSequence("FHRH400");
     run(800);
     if (servos[FRONT_SLIDER].pulseWidth() != 450) { printf("GRIP 0 should equal L\n"); bad++; }
+    // waking up: servos are powered one at a time, all of them before a SEQ starts (100 ms)
+    detachAllServos();
+    int maxAt = 0, last = 0;
+    for (int t = 0; t < 100; t++) {
+        NOW++;
+        attachServosStaggered();
+        int on = 0;
+        for (int i = 0; i < NUM_SERVOS; i++) on += servos[i].isAttached();
+        if (on - last > maxAt) maxAt = on - last;
+        last = on;
+    }
+    if (last != NUM_SERVOS || maxAt > 1) { printf("staggered wake-up wrong (%d attached, %d at once)\n", last, maxAt); bad++; }
     printf("firmware replay: %d app commands, %d problems\n", n, bad);
     return bad ? 1 : 0;
 }
