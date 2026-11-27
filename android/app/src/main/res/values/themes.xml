@@ -1,0 +1,9 @@
+<resources>
+    <style name="Theme.CubeRobot" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">#1f1e1d</item>
+        <item name="android:navigationBarColor">#1f1e1d</item>
+        <item name="colorPrimary">#3a7bf0</item>
+        <item name="colorAccent">#3fb27f</item>
+    </style>
+</resources>

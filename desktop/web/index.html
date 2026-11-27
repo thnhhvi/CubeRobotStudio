@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cube Robot Studio</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><span class="logo-cube"></span>Cube Robot <b>Studio</b></div>
+  <div class="chips">
+    <div class="chip" id="chip-robot"><span class="dot"></span><span class="txt">Robot: offline</span></div>
+    <div class="chip" id="chip-phone"><span class="dot"></span><span class="txt">Phone: none</span></div>
+    <div class="chip" id="chip-solver"><span class="dot"></span><span class="txt">Solver…</span></div>
+  </div>
+  <div class="conn">
+    <select id="port"></select>
+    <button id="btn-refresh" class="ghost" title="Refresh ports">⟳</button>
+    <button id="btn-connect">Connect</button>
+    <button id="btn-theme" class="ghost" title="Theme">◐</button>
+  </div>
+</header>
+
+<main class="grid">
+  <!-- LEFT: Cubzor-style face net -->
+  <section class="panel" id="panel-net">
+    <h2>Rubik's Cube 3x3 <span class="muted">— robot frame</span></h2>
+    <div class="orient">
+      <div>
+        <label>Front arm holds</label>
+        <div class="swatches" id="pick-front"></div>
+      </div>
+      <div>
+        <label>Top</label>
+        <div class="swatches" id="pick-top"></div>
+      </div>
+    </div>
+    <p class="hint" id="orient-hint"></p>
+    <div class="net" id="net"></div>
+    <div class="palette" id="palette"></div>
+    <div class="row">
+      <button id="btn-scan" class="primary">⦿ Scan with robot</button>
+      <button id="btn-reset" class="ghost">Start over</button>
+    </div>
+    <div class="row">
+      <button id="btn-calc" class="accent">Calculate solution</button>
+    </div>
+    <div id="scan-steps" class="scan-steps"></div>
+  </section>
+
+  <!-- CENTER: 3D + move track -->
+  <section class="panel center">
+    <div class="viewer">
+      <canvas id="cube3d"></canvas>
+      <div class="viewer-overlay">
+        <div class="badge" id="pose-badge">NORMAL</div>
+        <div class="robot-front">▲ robot front (logo side)</div>
+      </div>
+      <div class="scan-banner hidden" id="scan-banner"></div>
+    </div>
+    <div class="track-wrap">
+      <div class="track-head">
+        <h3>Move track</h3>
+        <div class="solinfo" id="solinfo">No solution yet</div>
+      </div>
+      <div class="track" id="track"></div>
+      <div class="row playback">
+        <button class="ghost" id="pb-first" title="Back to scanned state">⏮</button>
+        <button class="ghost" id="pb-prev">◀</button>
+        <button class="ghost" id="pb-next">▶</button>
+        <button class="ghost" id="pb-last" title="Preview all">⏭</button>
+        <span class="muted" id="pb-pos"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT: robot controls (from the original app) -->
+  <section class="panel" id="panel-robot">
+    <h2>Robot</h2>
+    <div class="state-card">
+      <div>
+        <div class="muted small">Robot state</div>
+        <div class="big" id="robot-state">OFFLINE</div>
+      </div>
+      <button id="btn-abort" class="danger">Abort</button>
+    </div>
+    <div class="speed">
+      <div class="speed-head"><label>Speed (servo delay)</label><b id="speed-val">210 ms</b></div>
+      <input type="range" id="speed" min="120" max="500" step="10">
+      <div class="speed-scale"><span>500 ms · slow</span><span>fast · 120 ms</span></div>
+    </div>
+    <div class="btn-grid">
+      <button id="btn-open">Open</button>
+      <button id="btn-close">Close</button>
+      <button id="btn-scramble">Scramble</button>
+      <button id="btn-solve" class="accent">Solve</button>
+    </div>
+    <div class="est" id="est"></div>
+
+    <details class="box" id="phone-box" open>
+      <summary>Phone link</summary>
+      <div class="small">Install the APK, then on the phone tap <b>Connect</b>. It finds this laptop
+        automatically on Wi-Fi, or over USB (adb reverse is set up automatically when <code>adb</code> is found).
+        Manual address:</div>
+      <div class="ips" id="ips"></div>
+      <label class="check"><input type="checkbox" id="auto-capture"> Auto-capture when the face is presented</label>
+    </details>
+
+    <details class="box">
+      <summary>Scan sequence tuning</summary>
+      <div class="small">Servo strings per scan step (firmware <code>SEQ</code> syntax, <code>{d}</code> = delay).
+        <b>Jog</b> runs one string so you can check the motion on your calibration.</div>
+      <div id="plan"></div>
+      <div class="row">
+        <button class="ghost" id="plan-save">Save</button>
+        <button class="ghost" id="plan-reset">Defaults</button>
+      </div>
+      <div class="row"><input id="jog-free" placeholder="free SEQ e.g. rrrr{d}rCrC"><button id="jog-go" class="ghost">Jog</button></div>
+    </details>
+
+    <details class="box" open>
+      <summary>Log</summary>
+      <div class="log" id="log"></div>
+    </details>
+  </section>
+</main>
+<div class="toast hidden" id="toast"></div>
+<script src="cube3d.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

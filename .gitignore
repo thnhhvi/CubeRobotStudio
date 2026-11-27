@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+desktop/build/
+desktop/dist/
+desktop/*.spec
+desktop/cuberobot/*.npz
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+desktop-go/web/
+desktop-go/*.exe
