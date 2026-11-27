@@ -42,7 +42,16 @@ instead of pressing at L, and the arms are not kept powered while waiting during
 
 ## Robot commands
 
-Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°, l −45°, C 0°, r +45°, R +90°.
+Slider states: **L = clamped (pressing)**, **C = just touching**, **R = released**. Spinners: L −90°,
+l −45°, C 0°, r +45°, R +90°.
+
+Safety rules for every command the app sends (solve, scramble, scan):
+
+* **Spinners wait for sliders.** A step moves sliders or spinners, never both. After a slider step the app
+  waits at least 250 ms (or the speed setting, if slower) before any spinner moves.
+* **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
+  first, then the other arm lets go.
+* **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
 
 * **Open:** all sliders to R.
 * **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
@@ -57,11 +66,10 @@ Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°
 
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
-3. For each face, all four arms clamp. The arm holding the face **twists its layer 45°**, lets go and turns
-   its gripper back to **vertical (C)**. The holding pair then rolls the cube 90°, so the face comes up on
-   top with its layer twisted 45°, pointing straight at the robot front. The holders end **horizontal
-   (R/L)** and the released arms stay **vertical (C)**. After Confirm the cube rolls back, the same arm
-   re-grips the twisted layer and untwists it.
+3. Each face is simply **rolled straight up** to the camera: no layer twist, no grippers turned
+   horizontal. In the scan pose every gripper is vertical, **front and back hold at C** and **left and right
+   wait released at R** until they are needed to turn the cube over (red and orange are rolled up by the
+   left/right arms, then front/back take over at C again). After Confirm front/back clamp, then left/right.
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
 5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
@@ -70,8 +78,16 @@ Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°
    Example for red front / white top: green, yellow, blue, white (front/back arms lift), then red, orange
    (left/right arms lift). The cube ends where it started, every gripper vertical and clamped.
 
+**Black grippers** are treated as an object in front of the cube: their pixels are ignored when a
+sticker is read (on the phone and again on the laptop from the face picture), and a sticker that is mostly
+covered is marked hidden (an X on the phone, ? in the net). When a face has hidden stickers the robot takes
+a **second look**: left/right ease in to C, front/back let go, the phone captures again, and the cube is
+handed back. Anything still hidden at the end is worked out from the rest of the cube (every piece exists
+once, 9 stickers per colour, twist/flip/parity); only a unique answer is used, otherwise the ? stickers are
+left for you to tap.
+
 The **GAN logo** on the white centre is looked for on the phone and again on the laptop (from the face
-picture). Both sample a disc, so the logo's direction does not matter, including on the 45° twisted face.
+picture). Both sample a disc, so the logo's direction does not matter.
 A centre with the logo always counts as white, never blue. The colours are classified from all 54
 stickers together, with 9 per colour. If the result is not a valid cube, the app tries every quarter-turn of each face picture.
 The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
@@ -80,8 +96,9 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 ## Checking the robot commands
 
 `tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
-clamping only square to a face or a twisted layer. For scanning it also checks that the holders are
-horizontal and the released arms vertical, and that the face on top is twisted 45°.
+clamping only square to a face. It enforces the safety rules above (no slider+spinner step, no clamp and
+release in one step, slider wait, an opposite pair always holding). For scanning it also checks the scan
+pose (all grippers vertical, front/back at C, left/right at R) and the second-look hand-off.
 
 ```
 cd desktop-go && cp -r ../desktop/web web && DUMP_SEQ=/tmp/seqs.json go test -run TestDumpSolveSeqs .

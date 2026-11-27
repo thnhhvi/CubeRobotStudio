@@ -50,7 +50,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), Link.Listener {
     companion object {
         const val GRAD = "gradient"
-        const val VERSION = "1.6"
+        const val VERSION = "1.7"
     }
     private var loadedHost: String? = null
 
@@ -356,6 +356,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 ui.post {
                     overlay.liveColors = s.preview
                     overlay.logoSeen = s.logoDetected
+                    overlay.hidden = s.occluded
                     overlay.invalidate()
                 }
             }
@@ -447,6 +448,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 .put("center_ring", JSONArray().put(s.centerRing[0]).put(s.centerRing[1]).put(s.centerRing[2]))
                 .put("logo", JSONObject().put("detected", s.logoDetected).put("score", s.logoScore.toDouble()))
                 .put("thumb", s.thumbJpegB64)
+                .put("occluded", JSONArray().apply { for (o in s.occluded) put(o) })
                 .put("index", promptIndex)
             link.post("/api/scan/capture", body) { res ->
                 ui.post {
@@ -499,8 +501,13 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 showCamera(true)
                 captureBtn.isEnabled = true
                 val hint = ev.optString("manual_hint", "")
-                prompt.text = "Aim at the $name face  (${promptIndex + 1}/$total), then tap Scan face" +
+                prompt.text = if (ev.optBoolean("second_look", false))
+                    "Second look at the $name face (${promptIndex + 1}/$total): side arms holding, " +
+                        "capturing the stickers the grippers hid…"
+                else "Aim at the $name face  (${promptIndex + 1}/$total), then tap Scan face" +
                     if (hint.isNotEmpty() && hint != "null") "\n$hint" else ""
+                overlay.hidden = null
+                overlay.invalidate()
             }
             "scan_review" -> ui.post {
                 showCamera(true)
@@ -509,11 +516,14 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 if (prev != null && prev.length() == 9) {
                     overlay.liveColors = IntArray(9) { colorOf(prev.optString(it)) }
                     overlay.logoSeen = ev.optBoolean("logo", false)
+                    val hid = ev.optJSONArray("hidden")
+                    overlay.hidden = if (hid != null && hid.length() == 9) BooleanArray(9) { hid.optBoolean(it) } else null
                     overlay.invalidate()
                 }
                 val name = ev.optString("color_name").uppercase()
+                val nHid = ev.optInt("hidden_count", 0)
                 prompt.text = "Check the $name face (${ev.optInt("index") + 1}/${ev.optInt("total", 6)}): " +
-                    "colours right?"
+                    "colours right?" + if (nHid > 0) "\n$nHid sticker(s) hidden by a gripper (X) – worked out from the other faces" else ""
             }
             "scan_done" -> ui.post {
                 setReview(false)

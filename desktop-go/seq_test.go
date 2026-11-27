@@ -3,6 +3,7 @@ package main
 import (
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -35,12 +36,30 @@ func TestSeqBatches(t *testing.T) {
 }
 
 func TestSoftenHolds(t *testing.T) {
-	in := "RLLLFRBR210fRbL210FLBL210RRLR210fCfCbCbC210RLLL210lR210LR210lClC210LL"
-	want := "RCLCFRBR210fRbL210FCBC210RRLR210fCfCbCbC210RCLC210lR210LR210lClC210LC"
+	in := "RLLL250FRBR250fRbL210FLBL250RRLR250fCfCbCbC210RLLL250lR210LR250lClC210LL"
+	want := "RCLC250FRBR250fRbL210FCBC250RRLR250fCfCbCbC210RCLC250lR210LR250lClC210LC"
 	if got := softenHolds(in); got != want {
 		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
 	if got := softenHolds("FLBL500RLLL"); got != "FCBC500RCLC" {
 		t.Fatalf("close: %s", got)
+	}
+}
+
+func TestCalibrationFirmwareBlocked(t *testing.T) {
+	sent := []string{}
+	l := &Link{onLine: func(string) {}, onStatus: func(bool, string) {}}
+	q := NewRobotQueue(l, func(map[string]any) {})
+	l.sim = &Simulator{out: func(s string) {}} // pretend connected
+	q.OnLine("Selected Servo: 0 (RIGHT_SPINNER) | Mode: CENTER | Center us: 1520 | Deviation: 0")
+	if !q.CalibrationFirmware() {
+		t.Fatal("calibration firmware not recognised")
+	}
+	if err := q.Run("SEQ RRLRFRBR"); err == nil || !strings.Contains(err.Error(), "CALIBRATE") {
+		t.Fatalf("command not blocked: %v (sent %v)", err, sent)
+	}
+	q.OnLine("Listening for API commands, type 'HELP' for list of commands.")
+	if q.CalibrationFirmware() {
+		t.Fatal("normal firmware banner should clear the flag")
 	}
 }

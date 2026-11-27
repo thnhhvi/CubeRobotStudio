@@ -29,35 +29,41 @@ type ScanPlan struct {
 }
 
 func defaultPlan() ScanPlan {
-	// Sliders: L = clamped, R = released. Spinners: L -90, l -45, C 0 (vertical), r +45, R +90.
-	// Each face: the arm holding it twists its LAYER 45 deg (all four arms clamped), lets go
-	// and turns its gripper back to vertical; the holding pair rolls the cube 90 deg so the
-	// face comes up with its layer twisted 45 deg - squarely facing the robot front. The
-	// holders end HORIZONTAL (R / L), the released arms stay VERTICAL (C).
-	// Revert: roll back, the same arm re-grips the twisted layer and untwists it.
+	// Sliders: L = clamped, C = touching, R = released. Spinners: L -90, C 0 (vertical), R +90.
+	// {d} = spinner wait, {s} = slider wait (a spinner only moves after the sliders stopped).
+	// Each face is simply rolled straight up to the camera: the rolling pair pre-turns its
+	// free grippers, clamps, the other pair lets go, the grippers turn back to vertical
+	// (rolling the cube 90 deg). Scan pose: every gripper vertical, front/back hold at C,
+	// left/right wait released at R. At every moment one opposite pair holds the cube.
 	a := func(id string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			// left arm twists its layer, frees itself; front/back roll the face to the top
-			Present: "lr{d}LR{d}lClCRR{d}fRbL{d}",
-			// roll back, left re-grips + untwists, then roll on: next face to the left arm
-			Revert: "fCfCbCbC{d}lr{d}LLRL{d}lC{d}LR{d}lClC{d}LL{d}" +
-				"FRBR{d}fLbR{d}FLBL{d}RRLR{d}fCfCbCbC{d}RLLL{d}",
-			View: []string{"z"}, Keep: []string{"z"}}
+			// front/back roll the next face up (z), then ease to C; left/right stay at R
+			Present: "FRBR{s}fLbR{d}FLBL{s}RRLR{s}fCfCbCbC{d}FCBC{s}",
+			// clamp front/back, then left/right: home pose with the roll kept
+			Revert: "FLBL{s}RLLL{s}",
+			View:   []string{"z"}, Keep: []string{"z"}}
 	}
-	return ScanPlan{CameraFace: "U", Version: 4, Steps: []ScanStep{
+	// left/right roll red (front) or orange (back) up; front/back take over at C and
+	// left/right let go, so the scan pose is the same as for the other faces.
+	b := func(id, pre, back, view string) ScanStep {
+		return ScanStep{ID: id, Axis: "left/right",
+			Present: "RRLR{s}" + pre + "{d}RLLL{s}FRBR{s}rCrClClC{d}FCBC{s}RRLR{s}",
+			Revert:  "FLBL{s}" + back + "{d}RLLL{s}FRBR{s}rCrClClC{d}FLBL{s}",
+			View:    []string{view}, Keep: []string{}}
+	}
+	return ScanPlan{CameraFace: "U", Version: 5, Steps: []ScanStep{
 		a("A1"), a("A2"), a("A3"), a("A4"),
-		// front arm twists red's layer; right/left roll it to the top (F -> U)
-		{ID: "B1", Axis: "left/right",
-			Present: "fr{d}FR{d}fCfCBR{d}rRlL{d}",
-			Revert:  "rCrClClC{d}fr{d}FLBL{d}fC{d}FR{d}fCfC{d}FL{d}",
-			View:    []string{"x"}, Keep: []string{}},
-		// back arm twists orange's layer; right/left roll it to the top (B -> U)
-		{ID: "B2", Axis: "left/right",
-			Present: "br{d}BR{d}bCbCFR{d}rLlR{d}",
-			Revert:  "rCrClClC{d}br{d}BLFL{d}bC{d}BR{d}bCbC{d}BL{d}",
-			View:    []string{"x'"}, Keep: []string{}},
+		b("B1", "rLlR", "rRlL", "x"),  // front (red) -> top
+		b("B2", "rRlL", "rLlR", "x'"), // back (orange) -> top
 	}}
 }
+
+// Second look at a face when grippers hide stickers: left/right ease in to C, then
+// front/back let go (the cube is never free); and back again before the revert.
+const (
+	handOffSeq  = "RCLC{s}FRBR{s}"
+	handBackSeq = "FCBC{s}RRLR{s}"
+)
 
 // Older default strings (v1: sliders at C, v2: diagonal grippers) are replaced by the
 // current defaults; steps the user edited are kept.
@@ -71,10 +77,18 @@ var oldDefaults = map[string]bool{
 	"FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}":     true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": true,
 	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}":     true,
+	// v4: 45 deg layer twist, holders horizontal
+	"lr{d}LR{d}lClCRR{d}fRbL{d}": true,
+	"fCfCbCbC{d}lr{d}LLRL{d}lC{d}LR{d}lClC{d}LL{d}" +
+		"FRBR{d}fLbR{d}FLBL{d}RRLR{d}fCfCbCbC{d}RLLL{d}": true,
+	"fr{d}FR{d}fCfCBR{d}rRlL{d}":                    true,
+	"rCrClClC{d}fr{d}FLBL{d}fC{d}FR{d}fCfC{d}FL{d}": true,
+	"br{d}BR{d}bCbCFR{d}rLlR{d}":                    true,
+	"rCrClClC{d}br{d}BLFL{d}bC{d}BR{d}bCbC{d}BL{d}": true,
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 4 {
+	if p.Version >= 5 {
 		return p
 	}
 	def := map[string]ScanStep{}
@@ -88,7 +102,7 @@ func upgradePlan(p ScanPlan) ScanPlan {
 			p.Steps[i] = d
 		}
 	}
-	p.Version = 4
+	p.Version = 5
 	return p
 }
 
@@ -111,7 +125,11 @@ func savePlan(dir string, p ScanPlan) error {
 	return os.WriteFile(filepath.Join(dir, "scan_plan.json"), b, 0o644)
 }
 
-func fillSeq(seq string, d int) string { return strings.ReplaceAll(seq, "{d}", strconv.Itoa(d)) }
+// fillSeq puts the speed into a plan string: {d} spinner wait, {s} slider wait.
+func fillSeq(seq string, d int) string {
+	seq = strings.ReplaceAll(seq, "{s}", strconv.Itoa(sliderWait(d)))
+	return strings.ReplaceAll(seq, "{d}", strconv.Itoa(d))
+}
 
 type WalkStep struct {
 	Step  ScanStep

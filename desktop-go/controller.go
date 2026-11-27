@@ -72,6 +72,7 @@ type ScanState struct {
 	Colors  []byte      // per step: colour letter once known, else '?'
 	Obs     []centerObs // measured centres so far
 	Known   bool        // centre colours assigned (after the first two faces)
+	Second  bool        // second look: side arms holding, grippers moved off the stickers
 }
 
 type Controller struct {
@@ -178,7 +179,7 @@ func (c *Controller) Snapshot() map[string]any {
 	var scan any
 	if c.scan != nil {
 		s := c.scan
-		scan = map[string]any{"index": s.Index, "total": s.Total, "color": string(s.Color), "phase": s.Phase,
+		scan = map[string]any{"index": s.Index, "total": s.Total, "color": string(s.Color), "phase": s.Phase, "second_look": s.Second,
 			"step_id": s.StepID, "done": s.Done, "view": s.View, "cells": s.Cells}
 	}
 	var busy any
@@ -210,7 +211,8 @@ func (c *Controller) Snapshot() map[string]any {
 		"type": "state", "colors": c.colors, "state_known": c.stateKnown, "settings": c.settings,
 		"speed_range": []int{speedMin, speedMax},
 		"robot": map[string]any{"connected": c.link.Connected(), "port": c.link.Port(),
-			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation()},
+			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation(),
+			"calibration_fw": c.rq.CalibrationFirmware()},
 		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": info,
 		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": thumbs,
 		"scanned": append([]string{}, c.scanned...), "scan_steps": c.scanSteps(), "phones": phones,
@@ -239,6 +241,9 @@ func (c *Controller) onLinkStatus(up bool, port string) {
 
 func (c *Controller) Connect(port string) error {
 	c.heard.Clear()
+	c.rq.mu.Lock()
+	c.rq.calibFW = false
+	c.rq.mu.Unlock()
 	if err := c.link.Connect(port); err != nil {
 		return err
 	}
@@ -259,6 +264,10 @@ func (c *Controller) Connect(port string) error {
 		c.heard.Clear()
 		c.link.Send("PING")
 		if c.heard.Wait(2 * time.Second) {
+			if c.rq.CalibrationFirmware() {
+				c.PushState()
+				return nil // message already logged; commands are blocked
+			}
 			c.logf("info", "Arduino answered on %s", port)
 			c.rq.QuerySliders()
 			c.logf("info", "Slider positions: %s", c.sliderText())
@@ -806,44 +815,60 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 				stopHold()
 				return c.scanFail(errors.New("aborted"))
 			}
-			tiles := data["tiles"].([]any)
+			fr := readFace(data)
+			if fr.hiddenEdges() > 0 && useRobot {
+				// second look: left/right take the cube over (at C), front/back let go,
+				// so the stickers under the front/back grippers come into view
+				stopHold()
+				fr2, err := c.secondLook(s, i, len(steps), label, d)
+				if err != nil {
+					return c.scanFail(err)
+				}
+				if fr2 != nil {
+					fr.merge(fr2)
+				}
+				stopHold = c.holdPowered(useRobot)
+			}
+			th, logo, hidden := fr.thumb, fr.logo, fr.hidden
 			c.mu.Lock()
 			before := c.colors
 			prov := []byte(c.colors)
 			preview := make([]string, 9)
+			nHidden := 0
+			if logo && w.Cells[4]%9 == 4 {
+				hidden[4] = false
+			}
 			for k := 0; k < 9; k++ {
-				t := tiles[k].([]any)
-				rgb := [3]int{int(toFloat(t[0])), int(toFloat(t[1])), int(toFloat(t[2]))}
-				s.Samples[w.Cells[k]] = rgb
-				if w.Cells[k]%9 == 4 && s.Known {
-					prov[w.Cells[k]] = s.Colors[i]
-				} else {
-					prov[w.Cells[k]] = nearestDefault(rgb)
+				rgb := fr.rgb[k]
+				cell := w.Cells[k]
+				switch {
+				case cell%9 == 4 && logo:
+					prov[cell] = 'W'
+					s.Samples[cell] = rgb
+				case cell%9 == 4 && s.Known:
+					prov[cell] = s.Colors[i]
+					s.Samples[cell] = rgb
+				case hidden[k]:
+					delete(s.Samples, cell)
+					prov[cell] = '?'
+				default:
+					s.Samples[cell] = rgb
+					prov[cell] = nearestDefault(rgb)
 				}
-				preview[k] = string(prov[w.Cells[k]])
+				if hidden[k] {
+					nHidden++
+				}
+				preview[k] = string(prov[cell])
 			}
 			c.colors = string(prov)
-			th, _ := data["thumb"].(string)
 			if th != "" {
 				c.thumbs[fmt.Sprint(i)] = th
-			}
-			logo := false
-			if lg, ok := data["logo"].(map[string]any); ok {
-				logo, _ = lg["detected"].(bool)
-			}
-			if !logo && th != "" { // laptop double-check, any logo direction
-				logo, _ = logoInThumb(th)
-			}
-			if logo && w.Cells[4]%9 == 4 {
-				prov[w.Cells[4]] = 'W'
-				preview[4] = "W"
-				c.colors = string(prov)
 			}
 			s.Phase = "confirm"
 			c.mu.Unlock()
 			c.bus.Emit(map[string]any{"type": "scan_review", "index": i, "total": len(steps),
 				"color": string(s.Colors[i]), "color_name": label, "preview": preview,
-				"thumb": th, "logo": logo})
+				"thumb": th, "logo": logo, "hidden": hidden, "hidden_count": nHidden})
 			c.PushState()
 			act := <-c.confirmCh
 			stopHold()
@@ -859,9 +884,9 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			}
 			c.mu.Lock()
 			c.scanned = append(c.scanned, fmt.Sprint(i))
-			ct := tiles[4].([]any)
-			s.Obs = append(s.Obs, centerObs{Face: FACES[w.Cells[4]/9],
-				RGB: [3]int{int(toFloat(ct[0])), int(toFloat(ct[1])), int(toFloat(ct[2]))}, Logo: logo})
+			if !hidden[4] { // a centre hidden by a gripper says nothing about the colours
+				s.Obs = append(s.Obs, centerObs{Face: FACES[w.Cells[4]/9], RGB: fr.rgb[4], Logo: logo})
+			}
 			if !s.Known && len(s.Obs) >= 2 {
 				c.assignCenters(s, steps, false) // after the first two faces
 			}
@@ -892,12 +917,20 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	}
 	c.mu.Unlock()
 	cols := classify(s.Samples, centers)
-	fixed, rots, ok := autoOrient(cols)
+	nHidden := strings.Count(cols, "?")
+	fixed, rots, status := fixScan(cols)
+	ok := status == "ok"
 	c.mu.Lock()
-	if !ok {
+	if status == "ambiguous" {
+		c.colors = cols
+		c.warnings = append(c.warnings, fmt.Sprintf("%d sticker(s) were hidden by the grippers and could not be worked out - tap the ? stickers to set them (or rescan), then Calculate.", nHidden))
+	} else if !ok {
 		c.colors = cols
 		c.warnings = append(c.warnings, "Scan is not a valid cube - tap stickers to fix them, then Calculate.")
 	} else {
+		if nHidden > 0 {
+			c.logf("info", "Filled in %d sticker(s) hidden by the grippers", nHidden)
+		}
 		if rots != [6]int{} {
 			c.logf("info", "Auto-corrected face rotation(s): %v", rots)
 		}
@@ -919,6 +952,107 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 		}
 	}
 	return nil
+}
+
+// faceRead is one capture: sticker colours (gripper pixels left out), which stickers
+// are hidden by a gripper, the thumbnail and the GAN logo check.
+type faceRead struct {
+	rgb    [9][3]int
+	hidden []bool
+	thumb  string
+	logo   bool
+}
+
+func readFace(data map[string]any) *faceRead {
+	fr := &faceRead{hidden: make([]bool, 9)}
+	tiles := data["tiles"].([]any)
+	fr.thumb, _ = data["thumb"].(string)
+	// the phone ignores black gripper pixels and marks mostly hidden stickers; the
+	// laptop re-checks on the thumbnail (also for older phone apps)
+	phoneOcc, hasPhoneOcc := data["occluded"].([]any)
+	for k := 0; k < 9 && hasPhoneOcc && k < len(phoneOcc); k++ {
+		fr.hidden[k], _ = phoneOcc[k].(bool)
+	}
+	vis, hasVis := thumbTiles(fr.thumb)
+	for k := 0; k < 9; k++ {
+		t := tiles[k].([]any)
+		fr.rgb[k] = [3]int{int(toFloat(t[0])), int(toFloat(t[1])), int(toFloat(t[2]))}
+		if hasVis {
+			if vis[k].Visible < minVisible {
+				fr.hidden[k] = true
+			} else if !hasPhoneOcc && vis[k].Visible < 0.9 && vis[k].OK {
+				fr.rgb[k] = vis[k].RGB // partly covered: use only the visible part
+			}
+		}
+	}
+	if lg, ok := data["logo"].(map[string]any); ok {
+		fr.logo, _ = lg["detected"].(bool)
+	}
+	if !fr.logo && fr.thumb != "" { // laptop double-check, any logo direction
+		fr.logo, _ = logoInThumb(fr.thumb)
+	}
+	return fr
+}
+
+func (fr *faceRead) hiddenEdges() int {
+	n := 0
+	for k, h := range fr.hidden {
+		if h && k != 4 {
+			n++
+		}
+	}
+	return n
+}
+
+// merge fills stickers hidden in fr with the ones the second look saw.
+func (fr *faceRead) merge(o *faceRead) {
+	for k := 0; k < 9; k++ {
+		if fr.hidden[k] && !o.hidden[k] {
+			fr.rgb[k], fr.hidden[k] = o.rgb[k], false
+		}
+	}
+	fr.logo = fr.logo || o.logo
+}
+
+// secondLook hands the cube from the front/back grippers to the left/right ones, takes
+// another picture of the same face and hands it back. nil result = no usable picture.
+func (c *Controller) secondLook(s *ScanState, i, total int, label string, d int) (*faceRead, error) {
+	c.logf("info", "Some stickers are hidden by the grippers - taking a second look with the side arms holding")
+	c.mu.Lock()
+	s.Phase, s.Second = "moving", true
+	c.mu.Unlock()
+	c.PushState()
+	defer func() { c.mu.Lock(); s.Second = false; c.mu.Unlock() }()
+	if err := c.rq.Run("SEQ " + fillSeq(handOffSeq, d)); err != nil {
+		return nil, err
+	}
+	c.mu.Lock()
+	s.Phase = "capture"
+	c.mu.Unlock()
+	c.bus.Emit(map[string]any{"type": "scan_prompt", "index": i, "total": total,
+		"color": string(s.Colors[i]), "color_name": label, "auto": true, "second_look": true,
+		"settle_ms": c.cfg().CaptureSettleMs, "manual_hint": nil})
+	c.PushState()
+	go func() { // the phone captures by itself; "Scan face" works as well
+		time.Sleep(time.Duration(c.cfg().CaptureSettleMs+300) * time.Millisecond)
+		c.mu.Lock()
+		waiting := c.scan == s && s.Phase == "capture"
+		c.mu.Unlock()
+		if waiting {
+			c.bus.Emit(map[string]any{"type": "capture_now"})
+		}
+	}()
+	stopHold := c.holdPowered(true)
+	data := <-c.captureCh
+	stopHold()
+	if data == nil || c.scanCancelled(s) {
+		return nil, errors.New("aborted")
+	}
+	fr := readFace(data)
+	if err := c.rq.Run("SEQ " + fillSeq(handBackSeq, d)); err != nil {
+		return nil, err
+	}
+	return fr, nil
 }
 
 func (c *Controller) scanFail(err error) error {

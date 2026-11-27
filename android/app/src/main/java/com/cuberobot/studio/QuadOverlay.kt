@@ -22,6 +22,11 @@ class QuadOverlay(ctx: Context) : View(ctx) {
     val corners = arrayOf(PointF(0.2f, 0.3f), PointF(0.8f, 0.3f), PointF(0.8f, 0.7f), PointF(0.2f, 0.7f))
     var liveColors: IntArray? = null
     var logoSeen = false
+    /** stickers hidden by a black gripper (drawn with an X) */
+    var hidden: BooleanArray? = null
+    private val hidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFFF5252.toInt(); strokeWidth = 5f; style = Paint.Style.STROKE
+    }
     var onChanged: (() -> Unit)? = null
 
     private var dragIdx = -1
@@ -58,8 +63,8 @@ class QuadOverlay(ctx: Context) : View(ctx) {
         }
         // sample regions + live colour preview
         for (r in 0..2) for (c in 0..2) {
-            val u0 = (c + 0.3f) / 3f; val u1 = (c + 0.7f) / 3f
-            val v0 = (r + 0.3f) / 3f; val v1 = (r + 0.7f) / 3f
+            val u0 = (c + 0.25f) / 3f; val u1 = (c + 0.75f) / 3f
+            val v0 = (r + 0.25f) / 3f; val v1 = (r + 0.75f) / 3f
             val p = Path()
             val p0 = at(u0, v0); val p1 = at(u1, v0); val p2 = at(u1, v1); val p3 = at(u0, v1)
             p.moveTo(p0.x, p0.y); p.lineTo(p1.x, p1.y); p.lineTo(p2.x, p2.y); p.lineTo(p3.x, p3.y); p.close()
@@ -69,6 +74,10 @@ class QuadOverlay(ctx: Context) : View(ctx) {
                 canvas.drawPath(p, fillPaint)
             }
             canvas.drawPath(p, samplePaint)
+            if (hidden?.getOrNull(r * 3 + c) == true) {
+                line(canvas, p0, p2, hidePaint)
+                line(canvas, p1, p3, hidePaint)
+            }
         }
         if (logoSeen) {
             val m = at(0.5f, 0.5f)

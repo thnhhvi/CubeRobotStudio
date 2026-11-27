@@ -16,7 +16,8 @@ data class FaceSample(
     val logoDetected: Boolean,
     val logoScore: Float,
     val thumbJpegB64: String?,
-    val preview: IntArray            // 9 ARGB colours for the live overlay
+    val preview: IntArray,           // 9 ARGB colours for the live overlay
+    val occluded: BooleanArray       // sticker mostly covered by a black gripper
 )
 
 object FaceSampler {
@@ -45,19 +46,28 @@ object FaceSampler {
 
         val tiles = Array(9) { IntArray(3) }
         val preview = IntArray(9)
+        val occluded = BooleanArray(9)
         val n = 9
+        val hsv = FloatArray(3)
         for (r in 0..2) for (c in 0..2) {
-            // robust mean: sample a 9x9 lattice in the inner 40% of the tile, drop the
-            // 20% darkest/brightest (glare, gaps)
+            // robust mean: sample a 9x9 lattice in the inner 50% of the tile, leave out
+            // black gripper pixels (an external object), drop the 20% darkest/brightest
             val samples = ArrayList<Int>(n * n)
+            var all = 0
             for (i in 0 until n) for (j in 0 until n) {
-                val u = (c + 0.3f + 0.4f * i / (n - 1)) / 3f
-                val v = (r + 0.3f + 0.4f * j / (n - 1)) / 3f
-                samples.add(px(u, v))
+                val u = (c + 0.25f + 0.5f * i / (n - 1)) / 3f
+                val v = (r + 0.25f + 0.5f * j / (n - 1)) / 3f
+                val p = px(u, v)
+                all++
+                Color.colorToHSV(p, hsv)
+                if (isGripper(hsv)) continue
+                samples.add(p)
             }
+            val k = r * 3 + c
+            occluded[k] = samples.size < all * MIN_VISIBLE
             val rgb = trimmedMean(samples)
-            tiles[r * 3 + c] = rgb
-            preview[r * 3 + c] = nearestColor(rgb)
+            tiles[k] = rgb
+            preview[k] = if (occluded[k]) Color.rgb(60, 60, 60) else nearestColor(rgb)
         }
 
         // --- centre: GAN logo check (blue mark on the white centre cap). A disc is sampled
@@ -88,8 +98,15 @@ object FaceSampler {
         }
 
         val thumb = if (withThumb) thumbnail { u, v -> px(u, v) } else null
-        return FaceSample(tiles, ringRgb, logo, wf * (if (logo) 1f else 0f) + bf, thumb, preview)
+        if (logo) occluded[4] = false
+        return FaceSample(tiles, ringRgb, logo, wf * (if (logo) 1f else 0f) + bf, thumb, preview, occluded)
     }
+
+    /** a sticker needs this share of non-gripper pixels to be read (same as the laptop) */
+    private const val MIN_VISIBLE = 0.40f
+
+    /** black / very dark grey plastic; coloured stickers stay saturated even in shadow */
+    private fun isGripper(hsv: FloatArray) = hsv[2] < 0.20f || (hsv[2] < 0.36f && hsv[1] < 0.35f)
 
     private fun trimmedMean(px: List<Int>): IntArray {
         if (px.isEmpty()) return intArrayOf(0, 0, 0)

@@ -14,6 +14,7 @@
   let paint = "W";
   let base = null;           // colours the move track starts from
   let pbPos = 0;             // preview position in the solution
+  let calibWarned = false;   // calibration-firmware toast shown
   let runMap = null;         // robot move index -> solution index while executing
   let running = false;
 
@@ -185,7 +186,13 @@
     const st = r.connected ? r.state : "OFFLINE";
     $("robot-state").textContent = S.busy_task ? `${st} · ${S.busy_task}` : st;
     $("robot-state").className = "big " + st;
-    chip("chip-robot", r.connected ? (r.state === "BUSY" ? "busy" : "on") : "", r.connected ? `Robot: ${r.port}` : "Robot: offline");
+    chip("chip-robot", r.connected ? (r.calibration_fw ? "" : r.state === "BUSY" ? "busy" : "on") : "",
+      r.connected ? (r.calibration_fw ? `Robot: ${r.port} ⚠ calibration firmware` : `Robot: ${r.port}`) : "Robot: offline");
+    if (r.calibration_fw && !calibWarned) {
+      calibWarned = true;
+      toast("⚠ The Arduino runs the CALIBRATION firmware - set CALIBRATE false in Config.h and upload again", "error");
+    }
+    if (!r.calibration_fw) calibWarned = false;
     chip("chip-solver", S.solver_ready ? "on" : "busy", S.solver_ready ? "Solver ready" : "Solver: building tables…");
     const phones = (S.phones || []).filter((p) => Date.now() / 1000 - p.seen < 15);
     chip("chip-phone", phones.length ? "on" : "", phones.length ? `Phone: ${phones[0].name || "connected"}` : "Phone: none");
@@ -266,8 +273,9 @@
       const ph = { moving: "robot presenting", capture: "📷 capture on phone", captured: "checking…",
         confirm: "", confirmed: "turning back", reverting: "turning back" }[sc.phase] ?? sc.phase;
       const stp = (S.scan_steps || [])[sc.index] || {};
-      const head = `Scanning ${stp.label || "face"} (${sc.index + 1}/${sc.total})`;
-      const mode = sc.phase + sc.index;
+      const head = `Scanning ${stp.label || "face"} (${sc.index + 1}/${sc.total})` +
+        (sc.second_look ? " · second look (side arms holding, grippers off the hidden stickers)" : "");
+      const mode = sc.phase + sc.index + (sc.second_look ? "b" : "");
       if (ban.dataset.mode !== mode) {
         ban.dataset.mode = mode;
         const fr = NAMES[S.settings.front], tp = NAMES[S.settings.top];
@@ -288,7 +296,7 @@
           $("scan-retake").onclick = () => post("/api/scan/retake");
           $("scan-confirm").onclick = () => post("/api/scan/confirm");
         } else {
-          const ph = { moving: "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
+          const ph = { moving: sc.second_look ? "handing the cube to the side arms…" : "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
             reverting: "turning back…" }[sc.phase] ?? sc.phase;
           ban.textContent = `${head} — ${ph}`;
         }
@@ -338,6 +346,9 @@
           break;
         case "scan_done": toast("Scan complete"); break;
         case "scan_prompt": break;
+        case "scan_review":
+          if (ev.hidden_count) log(`${ev.hidden_count} sticker(s) on this face hidden by a gripper (shown as ?) - they are worked out from the other faces`);
+          break;
       }
     };
     es.onerror = () => chip("chip-robot", "", "Server offline…");

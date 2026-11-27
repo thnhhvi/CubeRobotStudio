@@ -58,7 +58,20 @@ func rotateCubeSeq(o, d int) string {
 	if o == INVERT {
 		pre = "fRbL"
 	}
-	return fmt.Sprintf("RLLLFRBR%d%s%dFLBL%dRRLR%dfCfCbCbC%dRLLL%d", d, pre, d, d, d, d, d)
+	s := sliderWait(d)
+	// clamp R/L, then release F/B (never in the same instant: R/L hold the cube),
+	// pre-turn the free F/B grippers, clamp F/B, release R/L, roll, re-clamp R/L.
+	return fmt.Sprintf("RLLL%dFRBR%d%s%dFLBL%dRRLR%dfCfCbCbC%dRLLL%d", s, s, pre, d, s, s, d, s)
+}
+
+// sliderWait is how long a slider group gets before any spinner may move: sliders
+// travel further than a gripper quarter turn, so fast speeds would let a spinner start
+// while its slider is still moving. Every group is either sliders or spinners, never both.
+func sliderWait(d int) int {
+	if d < 250 {
+		return 250
+	}
+	return d
 }
 
 // faceSeq turns one face (robot char, e.g. 'U' or 'u') with the arm that holds it;
@@ -83,7 +96,10 @@ func faceSeq(ch byte, orient, d int) string {
 	}
 	slider := string(unicode.ToUpper(rune(arm)))
 	a := string(arm)
-	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, d, slider, d, a, a, d, slider, d)
+	sw := sliderWait(d)
+	// turn (all four arms clamped), release this arm only (the other pair still holds),
+	// gripper back to vertical, re-clamp.
+	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, d, slider, sw, a, a, d, slider, sw)
 }
 
 // parseSeq returns the (servo, state) pairs of a SEQ string in order (delays skipped).
@@ -159,8 +175,9 @@ func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
 			if no == INVERT {
 				p = "INVERT"
 			}
-			ev = append(ev, &TLEvent{At: t + 4*d, Dur: d, Kind: "pose", Pose: p})
-			t += 6 * d
+			sw := sliderWait(d)
+			ev = append(ev, &TLEvent{At: t + 4*sw + d, Dur: d, Kind: "pose", Pose: p})
+			t += 5*sw + 2*d
 			orient = no
 		}
 		f := string(unicode.ToUpper(rune(ch)))
@@ -169,7 +186,7 @@ func buildTimeline(rm string, orient, d int) ([]*TLEvent, int, int) {
 			mv = f + "'"
 		}
 		ev = append(ev, &TLEvent{At: t, Dur: d, Kind: "move", Move: mv})
-		t += 4 * d
+		t += 2*d + 2*sliderWait(d)
 	}
 	return ev, orient, t
 }
@@ -448,6 +465,7 @@ type RobotQueue struct {
 	aborted     *Event
 	sliders     map[byte]byte // last known slider states (F B R L)
 	lowPower    bool          // servos on USB power: hold at C instead of L
+	calibFW     bool          // Arduino runs the calibration firmware (CALIBRATE true)
 	statusCh    chan byte
 }
 
@@ -456,7 +474,36 @@ func NewRobotQueue(l *Link, emit func(map[string]any)) *RobotQueue {
 		aborted: NewEvent(false), sliders: map[byte]byte{}, statusCh: make(chan byte, 4)}
 }
 
+// calibration firmware prints e.g. "Selected Servo: 0 (RIGHT_SPINNER) | Mode: CENTER ..."
+func isCalibrationOutput(line string) bool {
+	return strings.HasPrefix(line, "Selected Servo:") || strings.HasPrefix(line, "Servo calibration tool") ||
+		strings.HasPrefix(line, "Writing all calibrations") || strings.HasPrefix(line, "Writing calibration for")
+}
+
+const calibFWMsg = "The Arduino is running the CALIBRATION firmware (CALIBRATE true in Config.h): it ignores " +
+	"the app and would move servos at random from its commands. Set #define CALIBRATE false, upload again, " +
+	"then Connect."
+
+func (q *RobotQueue) CalibrationFirmware() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.calibFW }
+
 func (q *RobotQueue) OnLine(line string) {
+	if isCalibrationOutput(line) {
+		q.mu.Lock()
+		first := !q.calibFW
+		q.calibFW = true
+		q.mu.Unlock()
+		if first {
+			q.emit(map[string]any{"type": "log", "level": "error", "msg": calibFWMsg})
+		}
+		q.busySeen.Set() // wake anything waiting for BUSY
+		q.idle.Set()
+		return
+	}
+	if strings.HasPrefix(line, "Listening for API commands") {
+		q.mu.Lock()
+		q.calibFW = false
+		q.mu.Unlock()
+	}
 	if len(line) == 1 && strings.Contains("RCLrl", line) {
 		select { // reply to "STATUS <servo>"
 		case q.statusCh <- line[0]:
@@ -507,6 +554,9 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	if q.aborted.IsSet() {
 		return time.Time{}, errors.New("aborted")
 	}
+	if q.CalibrationFirmware() {
+		return time.Time{}, errors.New(calibFWMsg)
+	}
 	q.idle.Wait(120 * time.Second)
 	q.busySeen.Clear()
 	q.idle.Clear()
@@ -535,7 +585,12 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	if !q.busySeen.Wait(5 * time.Second) {
 		q.idle.Set()
 		return time.Time{}, errors.New("Robot did not answer " + cmd + " (no BUSY within 5 s). " +
-			"Is the right COM port selected and the Bluetooth module unplugged from RX/TX?")
+			"Check that the normal firmware is running (CALIBRATE false in Config.h), the right COM port " +
+			"is selected, and the Arduino IDE Serial Monitor is closed.")
+	}
+	if q.CalibrationFirmware() {
+		q.idle.Set()
+		return time.Time{}, errors.New(calibFWMsg)
 	}
 	return time.Now(), nil
 }
@@ -596,6 +651,9 @@ func (q *RobotQueue) SliderStates() map[byte]byte {
 
 // QuerySliders asks the firmware ("STATUS F" ...) where each slider is.
 func (q *RobotQueue) QuerySliders() {
+	if q.CalibrationFirmware() {
+		return
+	}
 	for _, s := range []byte("FBRL") {
 		for len(q.statusCh) > 0 {
 			<-q.statusCh

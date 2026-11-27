@@ -51,10 +51,12 @@ func TestDumpScanPlan(t *testing.T) {
 		ID      string `json:"id"`
 		Present string `json:"present"`
 		Revert  string `json:"revert"`
+		Off     string `json:"handoff"`
+		Back    string `json:"handback"`
 	}
 	steps := []s{}
 	for _, st := range defaultPlan().Steps {
-		steps = append(steps, s{st.ID, st.Present, st.Revert})
+		steps = append(steps, s{st.ID, st.Present, st.Revert, handOffSeq, handBackSeq})
 	}
 	b, _ := json.Marshal(steps)
 	os.WriteFile(out, b, 0o644)

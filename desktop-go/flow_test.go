@@ -1,6 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
+	"image"
+	"image/color"
+	"image/jpeg"
 	"math/rand"
 	"strings"
 	"testing"
@@ -9,7 +14,7 @@ import (
 
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	end := time.Now().Add(30 * time.Second)
+	end := time.Now().Add(90 * time.Second)
 	for time.Now().Before(end) {
 		if cond() {
 			return
@@ -26,6 +31,27 @@ func scanPhase(c *Controller) (string, int) {
 		return "", -1
 	}
 	return c.scan.Phase, c.scan.Index
+}
+
+// fakeThumb draws a 96 px face thumbnail with a black gripper over one sticker.
+func fakeThumb(cols [9][3]int, hide int) string {
+	img := image.NewRGBA(image.Rect(0, 0, 96, 96))
+	for y := 0; y < 96; y++ {
+		for x := 0; x < 96; x++ {
+			k := (y/32)*3 + x/32
+			c := cols[k]
+			if x%32 < 2 || y%32 < 2 {
+				c = [3]int{10, 10, 10} // gaps between stickers
+			}
+			if k == hide && x%32 > 4 {
+				c = [3]int{25, 25, 28} // gripper
+			}
+			img.Set(x, y, color.RGBA{uint8(c[0]), uint8(c[1]), uint8(c[2]), 255})
+		}
+	}
+	var b bytes.Buffer
+	jpeg.Encode(&b, img, &jpeg.Options{Quality: 70})
+	return base64.StdEncoding.EncodeToString(b.Bytes())
 }
 
 func idle(c *Controller) bool { c.mu.Lock(); defer c.mu.Unlock(); return c.busyTask == "" }
@@ -98,7 +124,38 @@ func TestAppFlow(t *testing.T) {
 				}
 				ts = append(ts, []any{float64(rgb[0]), float64(rgb[1]), float64(rgb[2])})
 			}
-			return map[string]any{"tiles": ts, "logo": map[string]any{"detected": logo}}
+			out := map[string]any{"tiles": ts, "logo": map[string]any{"detected": logo}}
+			if i < 5 { // a gripper hides the top-middle sticker (phone marks it)
+				occ := make([]any, 9)
+				for k := range occ {
+					occ[k] = k == 1
+				}
+				ts[1] = []any{20.0, 20.0, 22.0}
+				out["occluded"] = occ
+			} else { // last face: only the thumbnail shows the gripper over sticker 7
+				cols := [9][3]int{}
+				for k := 0; k < 9; k++ {
+					cols[k] = defaultRGB[truth[w.Cells[k]]]
+				}
+				out["thumb"] = fakeThumb(cols, 7)
+			}
+			return out
+		}
+		// first capture; when stickers are hidden the robot hands the cube to the side
+		// arms and asks for a second look
+		shoot := func(first, second map[string]any) {
+			if err := c.Capture(first); err != nil {
+				t.Fatal(err)
+			}
+			waitFor(t, "second look or confirm", func() bool {
+				p, _ := scanPhase(c)
+				return p == "confirm" || p == "capture"
+			})
+			if p, _ := scanPhase(c); p == "capture" {
+				if err := c.Capture(second); err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
 		if i == 1 { // after the first face only the position is known
 			c.mu.Lock()
@@ -115,14 +172,27 @@ func TestAppFlow(t *testing.T) {
 			if !known || lbl != "blue" {
 				t.Fatalf("after 2 faces: known=%v label=%q (want blue)", known, lbl)
 			}
-			c.Capture(tiles(true))
+			shoot(tiles(true), tiles(true))
 			waitFor(t, "confirm", func() bool { p, _ := scanPhase(c); return p == "confirm" })
 			c.ConfirmScan("retake")
 			waitFor(t, "recapture", func() bool { p, k := scanPhase(c); return p == "capture" && k == i })
 		}
-		if err := c.Capture(tiles(false)); err != nil {
-			t.Fatal(err)
+		second := tiles(false)
+		if i%2 == 0 || i == 5 { // second look sees everything; odd faces stay hidden
+			delete(second, "occluded")
+			delete(second, "thumb")
+			second["tiles"].([]any)[1] = tiles(true)["tiles"].([]any)[0]
+			ts := []any{}
+			for k := 0; k < 9; k++ {
+				rgb := defaultRGB[truth[w.Cells[k]]]
+				if k == 4 && truth[w.Cells[k]] == 'W' {
+					rgb = [3]int{70, 90, 190}
+				}
+				ts = append(ts, []any{float64(rgb[0]), float64(rgb[1]), float64(rgb[2])})
+			}
+			second["tiles"] = ts
 		}
+		shoot(tiles(false), second)
 		waitFor(t, "confirm", func() bool { p, k := scanPhase(c); return p == "confirm" && k == i })
 		if err := c.ConfirmScan("confirm"); err != nil {
 			t.Fatal(err)

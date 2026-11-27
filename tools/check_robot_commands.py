@@ -10,8 +10,11 @@ group by group (commands between two delays run at the same time):
     released (R) ROLL the whole cube (45 deg steps allowed, e.g. scan lifts),
   * a slider may only clamp square to its face/layer (gripper angle - layer twist = 0/+-90),
   * no layer may turn while a layer on another axis is twisted (the cube would jam),
+  * a group moves sliders OR spinners, never both, and never clamps one slider while
+    releasing another; a slider group must be followed by >= 250 ms before the next group,
+  * after every group at least one opposite pair (F+B or R+L) holds the cube (L or C),
   * scanning: while the cube rolls the released arms stay vertical (C); in the scan pose
-    the holding arms are horizontal (R/L) and the top face's layer is twisted 45 deg.
+    nothing is twisted, all grippers are vertical, F/B hold at C and R/L are released (R).
 
 Usage:
   python tools/check_robot_commands.py solve <seqs.json>   # from desktop-go DUMP_SEQ test
@@ -49,10 +52,22 @@ class Robot:
         return self.sl[arm.upper()] in "LC"
 
     def run(self, seq, label):
-        for grp in re.split(r"\d+", seq):
+        parts = re.split(r"(\d+)", seq)
+        for gi in range(0, len(parts), 2):
+            grp = parts[gi]
+            wait = int(parts[gi + 1]) if gi + 1 < len(parts) else None
             spin, slide = {}, {}
             for s, st in re.findall(r"([FBRLfbrl])([LlCrR])", grp):
                 (slide if s.isupper() else spin)[s] = st
+            if spin and slide:
+                self.err.append(f"{label}: group '{grp}' moves sliders and spinners together")
+            depth = {"R": 0, "r": 0, "C": 1, "l": 1, "L": 2}
+            clamps = [k for k, v in slide.items() if depth[v] > depth[self.sl[k]]]
+            frees = [k for k, v in slide.items() if depth[v] < depth[self.sl[k]]]
+            if clamps and frees:
+                self.err.append(f"{label}: group '{grp}' clamps {clamps} and releases {frees} at once")
+            if slide and wait is not None and wait < 250:
+                self.err.append(f"{label}: only {wait} ms after slider group '{grp}'")
             # sliders first (the firmware writes them in the same instant; clamping onto a
             # gripper that also moves in this group is checked with the new angle)
             moved = {k: ANG[v] - self.sp[k] for k, v in spin.items() if ANG[v] != self.sp[k]}
@@ -100,6 +115,9 @@ class Robot:
                     done.add(k)
             for k, v in spin.items():
                 self.sp[k] = ANG[v]
+            if grp and not ((self.clamped("f") and self.clamped("b")) or
+                            (self.clamped("r") and self.clamped("l"))):
+                self.err.append(f"{label}: after '{grp}' no opposite pair holds the cube {self.sl}")
 
     def center(self, arm):
         return 9 * cube.FACES.index(FACE[arm]) + 4
@@ -128,15 +146,15 @@ class Robot:
             self.tilt[ax] -= step
 
     def scan_pose(self, label):
-        """top face's layer twisted 45 deg; holders horizontal, released arms vertical"""
+        """face rolled straight up: nothing twisted, grippers vertical, F/B at C, R/L at R"""
         top = self.c[4]
-        if self.twist.get(top, 0) % 90 != 45:
-            self.err.append(f"{label}: top face is not twisted 45 deg towards the front")
+        if any(self.tilt.values()) or any(a % 90 for a in self.twist.values()):
+            self.err.append(f"{label}: cube or a layer is not square")
         for a in "fbrl":
-            if self.clamped(a) and abs(self.sp[a]) != 90:
-                self.err.append(f"{label}: holding arm {a} not horizontal ({self.sp[a]})")
-            if not self.clamped(a) and self.sp[a] != 0:
-                self.err.append(f"{label}: released arm {a} not vertical ({self.sp[a]})")
+            if self.sp[a] != 0:
+                self.err.append(f"{label}: gripper {a} not vertical ({self.sp[a]})")
+        if not (self.sl["F"] == "C" and self.sl["B"] == "C" and self.sl["R"] == "R" and self.sl["L"] == "R"):
+            self.err.append(f"{label}: scan pose sliders {self.sl} (want F/B at C, R/L at R)")
         return top
 
     def camera_face_color(self):
@@ -182,10 +200,19 @@ def check_scan(path, front="R", top="W"):
     rob = Robot(home, scan_rules=True)
     seen = []
     for st in plan:
-        rob.run(st["present"].replace("{d}", "200"), st["id"] + " present")
+        rob.run(st["present"].replace("{d}", "200").replace("{s}", "250"), st["id"] + " present")
         seen.append(rob.scan_pose(st["id"] + " scan pose"))
-        rob.run(st["revert"].replace("{d}", "200"), st["id"] + " revert")
-    ok_home = rob.c == home and not any(rob.tilt.values()) and not any(rob.twist.values())
+        if st.get("handoff"):   # second look: side arms hold at C, front/back released
+            rob.run(st["handoff"].replace("{s}", "250"), st["id"] + " hand-off")
+            if rob.sl != {"F": "R", "B": "R", "R": "C", "L": "C"} or any(rob.sp.values()):
+                rob.err.append(f"{st['id']} second look pose {rob.sl} {rob.sp}")
+            if rob.c[4] != seen[-1]:
+                rob.err.append(f"{st['id']} hand-off moved the cube")
+            rob.run(st["handback"].replace("{s}", "250"), st["id"] + " hand-back")
+            rob.scan_pose(st["id"] + " after hand-back")
+        rob.run(st["revert"].replace("{d}", "200").replace("{s}", "250"), st["id"] + " revert")
+    ok_home = rob.c == home and not any(rob.tilt.values()) and not any(rob.twist.values()) \
+        and all(v == "L" for v in rob.sl.values()) and not any(rob.sp.values())
     print("scan: camera sees", " -> ".join(cube.COLOR_NAMES[c] for c in seen),
           "| back home:", ok_home, "| final grippers", rob.sp, "sliders", rob.sl)
     print("\n".join(rob.err) if rob.err else "scan: no rule violations")
