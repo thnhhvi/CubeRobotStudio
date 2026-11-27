@@ -411,7 +411,7 @@ func (s *Simulator) receive(line string) {
 		if s.glide {
 			g = "1"
 		}
-		s.later("OK GLIDE "+g, 10*time.Millisecond)
+		s.later("OK GLIDE "+g+" v2.5", 10*time.Millisecond)
 	case "STATUS":
 		if len(parts) == 2 && len(parts[1]) == 1 {
 			st := byte('C')
@@ -517,14 +517,15 @@ type RobotQueue struct {
 	lowPower    bool          // servos on USB power: hold at C instead of L
 	calibFW     bool          // Arduino runs the calibration firmware (CALIBRATE true)
 	statusCh    chan byte
-	glideCh     chan bool
-	glide       bool // firmware supports GLIDE (paired spinners move in sync)
+	glideCh     chan string
+	glide       bool   // firmware supports GLIDE (paired spinners move in sync)
+	fwVersion   string // Cube Robot Studio firmware version ("" = before 2.5 or stock)
 }
 
 func NewRobotQueue(l *Link, emit func(map[string]any)) *RobotQueue {
 	return &RobotQueue{link: l, emit: emit, State: "IDLE", idle: NewEvent(true), busySeen: NewEvent(false),
 		aborted: NewEvent(false), sliders: map[byte]byte{}, statusCh: make(chan byte, 4),
-		glideCh: make(chan bool, 2)}
+		glideCh: make(chan string, 2)}
 }
 
 // calibration firmware prints e.g. "Selected Servo: 0 (RIGHT_SPINNER) | Mode: CENTER ..."
@@ -563,7 +564,7 @@ func (q *RobotQueue) OnLine(line string) {
 	}
 	if strings.HasPrefix(line, "OK GLIDE") || line == "ERR cmd: GLIDE" {
 		select { // reply to "GLIDE 1" (stock firmware: unknown command)
-		case q.glideCh <- strings.HasPrefix(line, "OK GLIDE 1"):
+		case q.glideCh <- line:
 		default:
 		}
 		return
@@ -768,21 +769,35 @@ func (q *RobotQueue) EnableGlide() bool {
 	if q.CalibrationFirmware() {
 		return false
 	}
-	for len(q.glideCh) > 0 {
-		<-q.glideCh
-	}
-	ok := false
-	if q.link.Send("GLIDE 1") == nil {
+	ok, ver := false, ""
+	for try := 0; try < 3 && !ok; try++ { // a reply can get lost right after connecting
+		for len(q.glideCh) > 0 {
+			<-q.glideCh
+		}
+		if q.link.Send("GLIDE 1") != nil {
+			break
+		}
 		select {
-		case ok = <-q.glideCh:
+		case line := <-q.glideCh:
+			if line == "ERR cmd: GLIDE" {
+				try = 3 // stock firmware: no point asking again
+				break
+			}
+			ok = strings.HasPrefix(line, "OK GLIDE 1")
+			if i := strings.Index(line, " v"); i > 0 {
+				ver = strings.TrimSpace(line[i+2:])
+			}
 		case <-time.After(1500 * time.Millisecond):
 		}
 	}
 	q.mu.Lock()
-	q.glide = ok
+	q.glide, q.fwVersion = ok, ver
 	q.mu.Unlock()
 	return ok
 }
+
+// FirmwareVersion is the Cube Robot Studio firmware version ("" if older / stock).
+func (q *RobotQueue) FirmwareVersion() string { q.mu.Lock(); defer q.mu.Unlock(); return q.fwVersion }
 
 // SetGrip sends how much harder than L the H clamp presses, and how far following
 // sliders back off at 45 deg (GLIDE firmware only).

@@ -58,11 +58,30 @@ jobs:
           DUMP_SEQ=/tmp/seqs.json DUMP_PLAN=/tmp/plan.json go test -count=1 -run 'TestDump' .
           python ../tools/check_robot_commands.py solve /tmp/seqs.json
           python ../tools/check_robot_commands.py scan /tmp/plan.json
-      - name: Firmware glide (synced spinners) host test
+      - name: Firmware host tests (glide, and every app command replayed through the firmware)
         run: |
           g++ -std=gnu++17 -I tools/firmware_host_test -I arduino/Arduino tools/firmware_host_test/glide_test.cpp \
             arduino/Arduino/MyServo.cpp arduino/Arduino/SequenceManager.cpp -o /tmp/glide
           /tmp/glide
+          (cd desktop-go && rm -rf web && cp -r ../desktop/web web && DUMP_FW=/tmp/fw.txt go test -count=1 -run TestDumpFirmwareSeqs .)
+          g++ -std=gnu++17 -I tools/firmware_host_test -I arduino/Arduino tools/firmware_host_test/replay_test.cpp \
+            arduino/Arduino/MyServo.cpp arduino/Arduino/SequenceManager.cpp -o /tmp/replay
+          /tmp/replay /tmp/fw.txt
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Compile the firmware for the Arduino Nano (and check its RAM use)
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install arduino:avr
+          arduino-cli lib install Servo
+          arduino-cli compile --fqbn arduino:avr:nano arduino/Arduino 2>&1 | tee /tmp/size.txt
+          pct=$(grep -o 'Global variables use [0-9]* bytes ([0-9]*%' /tmp/size.txt | grep -o '[0-9]*%' | tr -d '%')
+          echo "RAM used by globals: ${pct}%"
+          test "$pct" -le 80
 
   android-apk:
     runs-on: ubuntu-latest
@@ -88,7 +107,7 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [windows-exe, android-apk]
+    needs: [windows-exe, android-apk, core-tests, firmware]
     runs-on: ubuntu-latest
     permissions:
       contents: write

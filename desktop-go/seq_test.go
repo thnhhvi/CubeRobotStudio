@@ -73,9 +73,9 @@ func TestGlideStockFirmware(t *testing.T) {
 	if q.EnableGlide() || q.Glide() {
 		t.Fatal("stock firmware reported as glide-capable")
 	}
-	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("OK GLIDE 1") }()
-	if !q.EnableGlide() {
-		t.Fatal("glide firmware not recognised")
+	go func() { time.Sleep(50 * time.Millisecond); q.OnLine("OK GLIDE 1 v2.5") }()
+	if !q.EnableGlide() || q.FirmwareVersion() != "2.5" {
+		t.Fatalf("glide firmware not recognised (%q)", q.FirmwareVersion())
 	}
 }
 

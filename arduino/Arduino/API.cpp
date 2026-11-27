@@ -13,7 +13,8 @@ static char* tokens[MAX_TOKENS];
 
 void APISetup()
 {
-    Serial.println("Listening for API commands, type 'HELP' for list of commands.");
+    Serial.println(F("Listening for API commands, type 'HELP' for list of commands."));
+    Serial.println(F("Cube Robot Studio firmware " CRS_FIRMWARE_VERSION " (GLIDE GRIP FOLLOW)"));
     Serial.setTimeout(2000); // safer for long lines
 }
 
@@ -71,15 +72,15 @@ void APILoop()
     // --- HELP ---
     if (strcmp(cmd, "HELP") == 0)
     {
-        Serial.println("Commands:");
-        Serial.println("HELP");
-        Serial.println("PING");
-        Serial.println("STATUS [servo]");
-        Serial.println("SEQ <string>|C");
-        Serial.println("MOVE <delay_ms> <orientation> <moves>");
-        Serial.println("GLIDE [0|1]");
-        Serial.println("GRIP [us]");
-        Serial.println("FOLLOW [pct]");
+        Serial.println(F("Commands:"));
+        Serial.println(F("HELP"));
+        Serial.println(F("PING"));
+        Serial.println(F("STATUS [servo]"));
+        Serial.println(F("SEQ <string>|C"));
+        Serial.println(F("MOVE <delay_ms> <orientation> <moves>"));
+        Serial.println(F("GLIDE [0|1]"));
+        Serial.println(F("GRIP [us]"));
+        Serial.println(F("FOLLOW [pct]"));
         return;
     }
 
@@ -91,7 +92,7 @@ void APILoop()
             int v = atoi(tokens[1]);
             seqManager.hardGripUs = v < 0 ? 0 : (v > 150 ? 150 : v);
         }
-        Serial.print("OK GRIP ");
+        Serial.print(F("OK GRIP "));
         Serial.println(seqManager.hardGripUs);
         return;
     }
@@ -104,7 +105,7 @@ void APILoop()
             int v = atoi(tokens[1]);
             seqManager.trackPct = v < 0 ? 0 : (v > 100 ? 100 : v);
         }
-        Serial.print("OK FOLLOW ");
+        Serial.print(F("OK FOLLOW "));
         Serial.println(seqManager.trackPct);
         return;
     }
@@ -114,8 +115,9 @@ void APILoop()
     {
         if (tokenCount == 2)
             seqManager.glide = atoi(tokens[1]) != 0;
-        Serial.print("OK GLIDE ");
-        Serial.println(seqManager.glide ? 1 : 0);
+        Serial.print(F("OK GLIDE "));
+        Serial.print(seqManager.glide ? 1 : 0);
+        Serial.println(F(" v" CRS_FIRMWARE_VERSION));
         return;
     }
 
@@ -124,15 +126,15 @@ void APILoop()
     {
         if (tokenCount != 2)
         {
-            Serial.println("ERR args");
+            Serial.println(F("ERR args"));
             return;
         }
 
         int res = seqManager.startSequence(tokens[1]);
-        if (res == 0) Serial.println("OK");
-        else if (res == -1) Serial.println("ERR busy");
-        else if (res == -2) Serial.println("ERR format");
-        else Serial.println("ERR");
+        if (res == 0) Serial.println(F("OK"));
+        else if (res == -1) Serial.println(F("ERR busy"));
+        else if (res == -2) Serial.println(F("ERR format"));
+        else Serial.println(F("ERR"));
 
         return;
     }
@@ -142,14 +144,14 @@ void APILoop()
     {
         if (tokenCount != 4)
         {
-            Serial.println("ERR args");
+            Serial.println(F("ERR args"));
             return;
         }
 
         int delay = atoi(tokens[1]);
         if (delay < 0)
         {
-            Serial.println("ERR delay");
+            Serial.println(F("ERR delay"));
             return;
         }
 
@@ -160,15 +162,15 @@ void APILoop()
             seqManager.orientation = ORIENT_INVERT;
         else
         {
-            Serial.println("ERR orientation");
+            Serial.println(F("ERR orientation"));
             return;
         }
 
         int res = seqManager.startMoves(tokens[3], delay);
-        if (res == 0) Serial.println("OK");
-        else if (res == -1) Serial.println("ERR busy");
-        else if (res == -2) Serial.println("ERR format");
-        else Serial.println("ERR");
+        if (res == 0) Serial.println(F("OK"));
+        else if (res == -1) Serial.println(F("ERR busy"));
+        else if (res == -2) Serial.println(F("ERR format"));
+        else Serial.println(F("ERR"));
 
         return;
     }
@@ -184,14 +186,14 @@ void APILoop()
 
         if (tokenCount != 2)
         {
-            Serial.println("ERR args");
+            Serial.println(F("ERR args"));
             return;
         }
 
         ServoType servo;
         if (!parseServoType(tokens[1][0], servo))
         {
-            Serial.println("ERR servo_type");
+            Serial.println(F("ERR servo_type"));
             return;
         }
 
@@ -203,7 +205,7 @@ void APILoop()
             case STATE_r: Serial.println('r'); break;
             case STATE_l: Serial.println('l'); break;
             case STATE_H: Serial.println('H'); break;
-            default: Serial.println("ERR state"); break;
+            default: Serial.println(F("ERR state")); break;
         }
         return;
     }
@@ -211,11 +213,11 @@ void APILoop()
     // --- PING ---
     if (strcmp(cmd, "PING") == 0)
     {
-        Serial.println("PONG");
+        Serial.println(F("PONG"));
         return;
     }
 
     // --- UNKNOWN ---
-    Serial.print("ERR cmd: ");
+    Serial.print(F("ERR cmd: "));
     Serial.println(cmd);
 }

@@ -1,4 +1,4 @@
-#include "Calibrate.h"
+#include "calibrate.h"
 #include "MyServo.h"
 #include "SequenceManager.h"
 #include "API.h"
@@ -14,10 +14,14 @@ void setup() {
 
 void loop() {
     // During calibration, seqManager is never busy  
+#if KEEP_ATTACHED
+    attachAllServos();  // Cube Robot Studio: servos always powered, like in calibration mode
+#else
     if (millis() - seqManager.idleTimeMs < 3000 || seqManager.isBusy() || CALIBRATE)
         attachAllServos();
     else
         detachAllServos();
+#endif
         
     updateAllServos();  // advance spinner glides (Cube Robot Studio)
 

@@ -12,3 +12,4 @@ struct SerialT { void begin(long){} void setTimeout(long){} int available(){retu
  size_t readBytesUntil(char,char*,size_t){return 0;}
  template<class T> void print(T){} template<class T> void println(T){} void println(){} template<class T> void print(T,int){} template<class T> void println(T,int){} };
 extern SerialT Serial;
+#define F(x) (x)

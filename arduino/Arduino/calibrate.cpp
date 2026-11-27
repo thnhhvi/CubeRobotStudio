@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 #include "MyServo.h"
-#include "Calibrate.h"
+#include "calibrate.h"
 #include "Config.h"
 
 #define EEPROM_MAGIC 0xCAFE

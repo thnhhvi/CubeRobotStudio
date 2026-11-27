@@ -50,6 +50,13 @@ public:
         return pulse;
     }
 
+    // glide in progress, and how far along it is (0..1) - for tests and diagnostics
+    bool gliding() const { return glideMs != 0; }
+    float glideProgress() const
+    {
+        return (toPulse == fromPulse) ? 1.0f : (float)(pulse - fromPulse) / (float)(toPulse - fromPulse);
+    }
+
     int getPin() const
     {
         return pin;

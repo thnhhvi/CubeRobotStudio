@@ -216,7 +216,8 @@ func (c *Controller) Snapshot() map[string]any {
 		"speed_range": []int{speedMin, speedMax},
 		"robot": map[string]any{"connected": c.link.Connected(), "port": c.link.Port(),
 			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation(),
-			"calibration_fw": c.rq.CalibrationFirmware(), "glide": c.rq.Glide()},
+			"calibration_fw": c.rq.CalibrationFirmware(), "glide": c.rq.Glide(),
+			"firmware": c.rq.FirmwareVersion()},
 		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": info,
 		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": thumbs,
 		"scanned": append([]string{}, c.scanned...), "scan_steps": c.scanSteps(), "phones": phones,
@@ -291,11 +292,22 @@ const glideHelp = "This is the stock firmware: when two spinners turn together (
 	"Upload the firmware from the arduino/Arduino folder of Cube Robot Studio (CubeRobotFirmware.zip on the " +
 	"release page): it moves paired spinners on one timed path so they stay in sync. Your calibration is kept."
 
+func orStr(a, b string) string {
+	if a == "" {
+		return b
+	}
+	return a
+}
+
 // checkGlide turns on synced spinner moves when the firmware has them, else warns.
 func (c *Controller) checkGlide() {
 	if c.rq.EnableGlide() {
 		c.rq.SetGrip(c.cfg().FlipGripUs, c.cfg().FollowPct)
-		c.logf("info", "Firmware glide on: spinners that turn together move in sync; flips clamp %d µs harder", c.cfg().FlipGripUs)
+		c.logf("info", "Firmware glide on (Cube Robot Studio firmware %s): paired servos move in sync; flips clamp %d µs harder; support arms follow rolls %d%%",
+			orStr(c.rq.FirmwareVersion(), "before 2.5"), c.cfg().FlipGripUs, c.cfg().FollowPct)
+		if c.rq.FirmwareVersion() == "" {
+			c.logf("error", "This Cube Robot Studio firmware is older than 2.5: upload CubeRobotFirmware.zip from the latest release (servos stay powered between commands).")
+		}
 	} else if !c.rq.CalibrationFirmware() {
 		c.logf("error", glideHelp)
 	}
@@ -838,6 +850,18 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	if ok := <-c.beginCh; !ok || c.scanCancelled(s) {
 		return c.scanFail(errors.New("aborted"))
 	}
+	if useRobot { // every step starts from the clamped home pose: close the arms first if needed
+		st := c.rq.SliderStates()
+		for _, k := range []byte("FBRL") {
+			if st[k] != 'L' {
+				c.logf("info", "Closing the arms on the cube before scanning")
+				if err := c.rq.Run("SEQ " + closeSeq); err != nil {
+					return c.scanFail(err)
+				}
+				break
+			}
+		}
+	}
 	for i, w := range steps {
 		c.mu.Lock()
 		s.Index, s.Color, s.Phase, s.StepID, s.View, s.Cells = i, s.Colors[i], "moving", w.Step.ID, w.View, w.Cells
@@ -1238,6 +1262,9 @@ func (c *Controller) holdPowered(useRobot bool) (stop func()) {
 		defer close(finished)
 		if !useRobot || c.cfg().LowPower {
 			return // low-power mode: no keep-alive (holding current would brown out USB)
+		}
+		if c.rq.FirmwareVersion() != "" {
+			return // firmware 2.5+ keeps the servos powered: no keep-alive commands needed
 		}
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()

@@ -32,7 +32,12 @@
    (default 60) % of its C→R travel at 45°, where the corners stick out most. It follows the same timing
    as the rolling spinners and ends at C. `FOLLOW <pct>` sets the amount (Roll follow in the app).
 
-The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
+5. **Servos always powered** (`KEEP_ATTACHED true`), like in calibration mode: the arms keep holding
+   between commands instead of going limp 3 s after each one. The servos get warm when they hold for
+   a long time.
+
+On boot the firmware prints `Cube Robot Studio firmware 2.5 (GLIDE GRIP FOLLOW)`; the app shows the version
+in the robot chip. The `SEQ`/`MOVE`/`STATUS`/`PING` API is otherwise unchanged.
 
 ## Upload
 

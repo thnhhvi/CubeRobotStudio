@@ -3,7 +3,7 @@
 #include <Servo.h>
 #include "MyServo.h"
 #include "Config.h"
-#include "Calibrate.h"
+#include "calibrate.h"
 #include "SequenceManager.h"
 
 #define MIN_PULSE_WIDTH 250

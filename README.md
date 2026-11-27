@@ -75,8 +75,9 @@ Safety rules for every command the app sends (solve, scramble, scan):
   same servo steps itself as `SEQ` commands, with every hold at **L**. A command never exceeds 250
   characters (firmware buffer: 256). After a U/D move the cube is flipped, and at the end the robot flips
   it back, so it ends where it started (chosen front and top).
-* The firmware cuts power to the servos 3 s after a command. While the cube is lifted for the camera, the
-  app re-sends the slider positions every 2 s so the arms keep holding it.
+* The stock firmware cuts power to the servos 3 s after a command; the app then re-sends the slider
+  positions every 2 s while a face waits for the camera. The Cube Robot Studio firmware (2.5+) keeps the
+  servos powered all the time, so no re-sending is needed.
 
 ## Scanning
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"math/rand"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -61,4 +62,31 @@ func TestDumpScanPlan(t *testing.T) {
 	}
 	b, _ := json.Marshal(map[string]any{"steps": steps, "finish": defaultPlan().Finish})
 	os.WriteFile(out, b, 0o644)
+}
+
+// Writes the exact SEQ strings the app sends (scan plan incl. second look and finish,
+// cube flips, sample solves, open/close) for the firmware replay test
+// (tools/firmware_host_test/replay_test.cpp), at the fastest speed.
+func TestDumpFirmwareSeqs(t *testing.T) {
+	out := os.Getenv("DUMP_FW")
+	if out == "" {
+		t.Skip("set DUMP_FW=<file>")
+	}
+	lines := []string{openSeq, closeSeq}
+	for _, d := range []int{120, 300, 500} {
+		p := defaultPlan()
+		for _, st := range p.Steps {
+			off, back := st.look2()
+			for _, s := range []string{st.Present, off, back, st.Revert} {
+				lines = append(lines, fillSeq(s, d))
+			}
+		}
+		lines = append(lines, fillSeq(p.Finish, d), rotateCubeSeq(INVERT, d), rotateCubeSeq(NORMAL, d))
+		r := rand.New(rand.NewSource(int64(d)))
+		o := NORMAL
+		for _, b := range buildSeqBatches(toRobotMoves(randomScramble(25, r)), o, d) {
+			lines = append(lines, b.Seq)
+		}
+	}
+	os.WriteFile(out, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
