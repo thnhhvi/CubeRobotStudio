@@ -27,10 +27,6 @@
 // But, based on real testing, 32 moves were exceeded, so make it larger.
 #define MOVE_BUFFER_SIZE 64
 
-// Cube Robot Studio: state "H" clamps a slider this many microseconds further than its L
-// position (pressing a little harder while the cube is flipped). The app can change it at
-// runtime with "GRIP <us>" (0..150).
-#define HARD_GRIP_US 40
 
 // Cube Robot Studio: true = keep every servo powered all the time (as in calibration
 // mode). Off: like the stock firmware, the servos go limp 3 s after a command, which
@@ -41,4 +37,4 @@
 // time, this many ms apart (8 servos x 12 ms fits in the 100 ms before a SEQ starts).
 #define ATTACH_STAGGER_MS 12
 
-#define CRS_FIRMWARE_VERSION "3.1"
+#define CRS_FIRMWARE_VERSION "3.4"

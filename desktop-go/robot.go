@@ -5,7 +5,6 @@ package main
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
@@ -18,8 +17,8 @@ const (
 	NORMAL   = 0 // home orientation (orientations: see planner.go)
 	moveBuf  = 60
 	seqBuf   = 250
-	openSeq  = "RRLR500FRBR" // right + left release, 500 ms, then front + back (cube can be taken out)
-	closeSeq = "FLBL500RLLL" // front + back clamp (L), 500 ms, then right + left
+	openSeq  = "RRLRFRBR" // as in the original app: all sliders released
+	closeSeq = "RCLCFCBC" // as in the original app: all sliders to C (holding)
 )
 
 func toRobotMoves(moves []string) string {
@@ -38,14 +37,6 @@ func toRobotMoves(moves []string) string {
 	}
 	return b.String()
 }
-
-// Minimum times (ms) so a step has really finished before the next one starts, even
-// at the fastest speed setting: a 90 deg spinner turn, a slider stroke, and two spinners
-// turning together (a roll, the cube's weight on them).
-func spinWait(d int) int    { return maxInt(d, 300) }
-func slider1Wait(d int) int { return maxInt(d, 400) }
-func sliderWait(d int) int  { return maxInt(d, 400) } // two or more sliders
-func pairWait(d int) int    { return maxInt(d, 400) } // two spinners (roll)
 
 func maxInt(a, b int) int {
 	if a > b {
@@ -242,13 +233,7 @@ func (s *Simulator) receive(line string) {
 	case "PING":
 		s.later("PONG", 10*time.Millisecond)
 	case "INFO":
-		s.later("OK CRS 3.1", 10*time.Millisecond)
-	case "GRIP":
-		g := "40"
-		if len(parts) == 2 {
-			g = parts[1]
-		}
-		s.later("OK GRIP "+g, 10*time.Millisecond)
+		s.later("OK CRS 3.4", 10*time.Millisecond)
 	case "STATUS":
 		if len(parts) == 2 && len(parts[1]) == 1 {
 			st := byte('C')
@@ -400,9 +385,6 @@ func (q *RobotQueue) OnLine(line string) {
 		q.calibFW = false
 		q.mu.Unlock()
 	}
-	if strings.HasPrefix(line, "OK GRIP") || line == "ERR cmd: GRIP" {
-		return // answer to "GRIP <us>"
-	}
 	if strings.HasPrefix(line, "OK CRS") || line == "ERR cmd: INFO" {
 		select { // reply to "INFO" (stock firmware: unknown command)
 		case q.infoCh <- line:
@@ -410,7 +392,7 @@ func (q *RobotQueue) OnLine(line string) {
 		}
 		return
 	}
-	if len(line) == 1 && strings.Contains("RCLrlH", line) {
+	if len(line) == 1 && strings.Contains("RCLrl", line) {
 		select { // reply to "STATUS <servo>"
 		case q.statusCh <- line[0]:
 		default:
@@ -468,12 +450,9 @@ func (q *RobotQueue) start(cmd string, logIt bool) (time.Time, error) {
 	q.idle.Clear()
 	q.mu.Lock()
 	low := q.lowPower
-	crs := q.fwVersion != ""
 	q.mu.Unlock()
 	if low && strings.HasPrefix(cmd, "SEQ ") && cmd != "SEQ C" {
 		cmd = "SEQ " + softenHolds(cmd[4:])
-	} else if !crs && strings.HasPrefix(cmd, "SEQ ") {
-		cmd = "SEQ " + noHardGrip(cmd[4:]) // stock firmware has no H state
 	}
 	if logIt {
 		q.emit(map[string]any{"type": "log", "level": "tx", "msg": cmd})
@@ -531,22 +510,6 @@ func (q *RobotQueue) SetLowPower(on bool) { q.mu.Lock(); q.lowPower = on; q.mu.U
 
 // softenHolds turns every slider clamp (L) into a light hold (C); delays and spinner
 // states are kept. Used in low-power mode so the servos draw far less current.
-// noHardGrip adapts a sequence for the stock firmware: no hard clamp (H -> L).
-func noHardGrip(seq string) string {
-	b := []byte(seq)
-	for i := 0; i+1 < len(b); {
-		if b[i] >= '0' && b[i] <= '9' {
-			i++
-			continue
-		}
-		if strings.IndexByte("FBRL", b[i]) >= 0 && b[i+1] == 'H' {
-			b[i+1] = 'L'
-		}
-		i += 2
-	}
-	return string(b)
-}
-
 func softenHolds(seq string) string {
 	var b strings.Builder
 	for i := 0; i < len(seq); {
@@ -603,8 +566,7 @@ func (q *RobotQueue) QuerySliders() {
 	}
 }
 
-// ProbeFirmware asks "INFO": the Cube Robot Studio firmware answers "OK CRS <version>"
-// (hard grip H); the stock firmware answers "ERR cmd: INFO".
+// ProbeFirmware asks "INFO": the Cube Robot Studio firmware answers "OK CRS <version>"; the stock firmware answers "ERR cmd: INFO".
 func (q *RobotQueue) ProbeFirmware() bool {
 	if q.CalibrationFirmware() {
 		return false
@@ -636,14 +598,7 @@ func (q *RobotQueue) ProbeFirmware() bool {
 // FirmwareVersion is the Cube Robot Studio firmware version ("" if older / stock).
 func (q *RobotQueue) FirmwareVersion() string { q.mu.Lock(); defer q.mu.Unlock(); return q.fwVersion }
 
-// SetGrip sends how much harder than L the H clamp presses (Cube Robot Studio firmware).
-func (q *RobotQueue) SetGrip(us int) {
-	if q.CRSFirmware() {
-		q.link.Send(fmt.Sprintf("GRIP %d", us))
-	}
-}
-
-// CRSFirmware: the Cube Robot Studio firmware runs (H state, GRIP).
+// CRSFirmware: the Cube Robot Studio firmware runs.
 func (q *RobotQueue) CRSFirmware() bool { q.mu.Lock(); defer q.mu.Unlock(); return q.fwVersion != "" }
 
 func (q *RobotQueue) Abort() {

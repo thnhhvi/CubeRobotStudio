@@ -32,17 +32,16 @@ type ScanPlan struct {
 }
 
 func defaultPlan() ScanPlan {
-	// Sliders: H = clamped a little harder (carrying the cube in a roll), L = clamped,
-	// C = touching, R = released.
+	// Sliders: L = clamped, C = touching, R = released.
 	// Spinners: L -90, C 0 (vertical), R +90.
-	// {s} slider step, {p} two spinners rolling the cube, {d} one spinner.
+	// {s} {p} {d}: every step waits the scan delay (as in the original app).
 	// The face on top is scanned first without moving. Each further face is rolled up by
-	// one pair: it pre-turns its grippers while released, clamps hard, the other pair lets
+	// one pair: it pre-turns its grippers while released, clamps, the other pair lets
 	// go and the grippers turn back (the roll). Scan pose: the
 	// rolling pair clamped at L with its grippers vertical, the other pair at C (touching).
 	roll := func(id, view string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			Present: "FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}FLBL{s}RCLC{s}",
+			Present: "FRBR{s}fLbR{p}FLBL{s}RRLR{s}fCfCbCbC{p}FLBL{s}RCLC{s}",
 			Revert:  "RLLL{s}",
 			Look2:   "RLLL{s}FRBR{s}", Look2Back: "FLBL{s}RCLC{s}",
 			View: []string{view}, Keep: []string{view}}
@@ -50,8 +49,8 @@ func defaultPlan() ScanPlan {
 	// left/right roll red (front) or orange (back) up, and roll it back afterwards
 	b := func(id, pre, back, view string) ScanStep {
 		return ScanStep{ID: id, Axis: "left/right",
-			Present: "RRLR{s}" + pre + "{p}RHLH{s}FRBR{s}rCrClClC{p}RLLL{s}FCBC{s}",
-			Revert:  "FLBL{s}RRLR{s}" + back + "{p}RHLH{s}FRBR{s}rCrClClC{p}FLBL{s}RLLL{s}",
+			Present: "RRLR{s}" + pre + "{p}RLLL{s}FRBR{s}rCrClClC{p}RLLL{s}FCBC{s}",
+			Revert:  "FLBL{s}RRLR{s}" + back + "{p}RLLL{s}FRBR{s}rCrClClC{p}FLBL{s}RLLL{s}",
 			Look2:   "FLBL{s}RRLR{s}", Look2Back: "RLLL{s}FCBC{s}",
 			View: []string{view}, Keep: []string{}}
 	}
@@ -59,13 +58,13 @@ func defaultPlan() ScanPlan {
 		Present: "RCLC{s}", Revert: "RLLL{s}",
 		Look2: "RLLL{s}FRBR{s}", Look2Back: "FLBL{s}RCLC{s}",
 		View: []string{}, Keep: []string{}}
-	return ScanPlan{CameraFace: "U", Version: 11, Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 12, Steps: []ScanStep{
 		top, roll("A1", "z"), roll("A2", "z"), roll("A3", "z"),
 		b("B1", "rLlR", "rRlL", "x"),  // front (red) -> top
 		b("B2", "rRlL", "rLlR", "x'"), // back (orange) -> top
 	},
 		// after the last face: one more roll brings the cube back to where it started
-		Finish: "FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}RLLL{s}FLBL{s}"}
+		Finish: "FRBR{s}fLbR{p}FLBL{s}RRLR{s}fCfCbCbC{p}RLLL{s}FLBL{s}"}
 }
 
 // look2 returns the hand-off for a second look at the face (the other pair takes the
@@ -84,6 +83,11 @@ func (st ScanStep) look2() (string, string) {
 // Older default strings (v1: sliders at C, v2: diagonal grippers) are replaced by the
 // current defaults; steps the user edited are kept.
 var oldDefaults = map[string]bool{
+	// v11 (3.2-3.3): hard grip H while rolling, minimum step times
+	"FRBR{s}fLbR{p}FHBH{s}RRLR{s}fCfCbCbC{p}FLBL{s}RCLC{s}": true,
+	"RRLR{s}rLlR{p}RHLH{s}FRBR{s}rCrClClC{p}RLLL{s}FCBC{s}": true,
+	"RRLR{s}rRlL{p}RHLH{s}FRBR{s}rCrClClC{p}RLLL{s}FCBC{s}": true,
+	"RCLC{s}": true,
 	"RLLLFRBR{d}fLbR{d}FLBL{d}RRLR{d}frbl{d}":     true,
 	"fCfCbCbC{d}RCLC{d}FCBC":                      true,
 	"fCfCbCbC{d}RLLL{d}":                          true,
@@ -139,14 +143,14 @@ var oldDefaults = map[string]bool{
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 11 {
+	if p.Version >= 12 {
 		return p
 	}
 	// a plan made only of old default steps becomes the current default plan (keeping
 	// each face's picture rotation); a plan with edited steps is kept as it is
 	for _, st := range p.Steps {
 		if !oldDefaults[st.Present] || !oldDefaults[st.Revert] {
-			p.Version = 11
+			p.Version = 12
 			return p
 		}
 	}
@@ -188,10 +192,11 @@ func savePlan(dir string, p ScanPlan) error {
 // fillSeq puts the speed into a plan string: {d} one spinner, {s} sliders, {p} two
 // spinners together. ({h} from older saved plans counts as half a paired move.)
 func fillSeq(seq string, d int) string {
-	seq = strings.ReplaceAll(seq, "{s}", strconv.Itoa(sliderWait(d)))
-	seq = strings.ReplaceAll(seq, "{p}", strconv.Itoa(pairWait(d)))
-	seq = strings.ReplaceAll(seq, "{h}", strconv.Itoa(pairWait(d)/2))
-	return strings.ReplaceAll(seq, "{d}", strconv.Itoa(spinWait(d)))
+	// as in the original app every step simply waits the scan delay
+	for _, k := range []string{"{s}", "{p}", "{h}"} {
+		seq = strings.ReplaceAll(seq, k, "{d}")
+	}
+	return strings.ReplaceAll(seq, "{d}", strconv.Itoa(d))
 }
 
 type WalkStep struct {

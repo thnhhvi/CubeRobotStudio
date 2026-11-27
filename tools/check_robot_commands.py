@@ -226,14 +226,14 @@ def check_solve(path):
 
 
 def fill(seq):
-    return seq.replace("{d}", "300").replace("{s}", "400").replace("{p}", "400")
+    return seq.replace("{d}", "200").replace("{s}", "200").replace("{p}", "200")
 
 
 def check_scan(path, front="R", top="W"):
     data = json.load(open(path))
     plan, finish = (data["steps"], data.get("finish", "")) if isinstance(data, dict) else (data, "")
     home = cube.solved_colors(front, top)
-    rob = Robot(home, scan_rules=True)
+    rob = Robot(home, scan_rules=True, strict=False)   # physics + scan pose
     seen = []
     for st in plan:
         rob.run(fill(st["present"]), st["id"] + " present")

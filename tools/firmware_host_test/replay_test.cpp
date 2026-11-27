@@ -1,6 +1,6 @@
 // Replays every SEQ string the app sends through the real firmware code (host build, with
 // this robot's calibration) and checks: accepted, no SEQ errors, each command finishes,
-// and the hard grip (H) presses beyond L, away from C.
+// and the servos wake one at a time.
 //   DUMP_FW=/tmp/fw.txt go test -run TestDumpFirmwareSeqs .   (in desktop-go)
 //   g++ -std=gnu++17 -I tools/firmware_host_test -I arduino/Arduino \
 //       tools/firmware_host_test/replay_test.cpp arduino/Arduino/MyServo.cpp \
@@ -61,17 +61,6 @@ int main(int argc, char** argv) {
         if (seqManager.isBusy()) { printf("never finished: %s\n", line); bad++; }
         run(200);
     }
-    // hard grip: further than L, away from C (front L < C, right L > C)
-    seqManager.startSequence("FHRH400");
-    run(800);
-    if (servos[FRONT_SLIDER].pulseWidth() != 450 - 40 || servos[RIGHT_SLIDER].pulseWidth() != 2505 + 40) {
-        printf("hard grip wrong (F=%d R=%d)\n", servos[FRONT_SLIDER].pulseWidth(), servos[RIGHT_SLIDER].pulseWidth());
-        bad++;
-    }
-    seqManager.hardGripUs = 0;
-    seqManager.startSequence("FHRH400");
-    run(800);
-    if (servos[FRONT_SLIDER].pulseWidth() != 450) { printf("GRIP 0 should equal L\n"); bad++; }
     // waking up: servos are powered one at a time, all of them before a SEQ starts (100 ms)
     detachAllServos();
     int maxAt = 0, last = 0;

@@ -3,7 +3,6 @@
 #include "MyServo.h"
 #include "Config.h"
 #include "calibrate.h"
-#include "SequenceManager.h"
 
 #define MIN_PULSE_WIDTH 250
 #define MAX_PULSE_WIDTH 3000
@@ -26,13 +25,6 @@ void MyServo::setState(ServoState next)
     {
     case STATE_L:
         pulse = cal.L_us; break;
-    case STATE_H:   // Cube Robot Studio: slider presses a little further than L (away from C)
-        if (type % 2 == 1)
-            pulse = (cal.L_us >= cal.C_us) ? (int)cal.L_us + seqManager.hardGripUs
-                                            : (int)cal.L_us - seqManager.hardGripUs;
-        else
-            pulse = cal.L_us;
-        break;
     case STATE_R:
         pulse = cal.R_us; break;
     case STATE_C:

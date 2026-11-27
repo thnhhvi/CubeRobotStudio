@@ -59,9 +59,6 @@ public:
 
     CubeOrientation orientation = ORIENT_NORMAL;    // To keep track of which side is up
 
-    // Cube Robot Studio - GRIP <us>: how much further than L the "H" state presses
-    int hardGripUs = HARD_GRIP_US;
-
 private:
     int busy = 0;   // 0 = idle, 1 = busy with SEQ, 2 = busy with MOVE
     void notifyState();

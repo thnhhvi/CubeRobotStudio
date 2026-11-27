@@ -16,7 +16,6 @@ static bool parseServoState(char c, ServoState& state)
         case 'R': state = STATE_R; return true;
         case 'r': state = STATE_r; return true;
         case 'l': state = STATE_l; return true;
-        case 'H': state = STATE_H; return true;   // Cube Robot Studio: hard clamp
         default: return false;
     }
 }

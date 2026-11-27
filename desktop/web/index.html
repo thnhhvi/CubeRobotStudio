@@ -95,9 +95,6 @@
     <label class="check lowpower" title="Use this when the servos are powered from the laptop's USB port (no external 5 V supply)">
       <input type="checkbox" id="low-power"> Low-power mode: servos on USB power (hold at C, no holding during scans)
     </label>
-    <label class="check lowpower" title="While a scan rolls the cube the carrying arms clamp this much further than L. Needs the Cube Robot Studio firmware; 0 = same as L. (Solves use the firmware's own MOVE.)">
-      Flip grip: <input type="number" id="flip-grip" min="0" max="150" step="5" style="width:4.5em"> µs harder than L
-    </label>
     <div class="btn-grid">
       <button id="btn-open">Open</button>
       <button id="btn-close">Close</button>
@@ -122,7 +119,7 @@
 
     <details class="box">
       <summary>Scan sequence tuning</summary>
-      <div class="small">Servo strings per scan step (firmware <code>SEQ</code> syntax, <code>{d}</code> = one spinner, <code>{p}</code> = two spinners rolling the cube, <code>{s}</code> = sliders; <code>H</code> = clamp harder than L).
+      <div class="small">Servo strings per scan step (firmware <code>SEQ</code> syntax, <code>{d}</code> = one spinner, <code>{s}</code> / <code>{p}</code> = the same scan delay).
         <b>Jog</b> runs one string so you can check the motion on your calibration.</div>
       <div id="plan"></div>
       <div class="row">

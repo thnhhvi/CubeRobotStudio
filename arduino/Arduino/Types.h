@@ -6,8 +6,7 @@ enum ServoState
     STATE_L,
     STATE_R,
     STATE_r,    // 45 degree between CENTER and RIGHT
-    STATE_l,  // 45 degree between CENTER and LEFT
-    STATE_H   // sliders: clamp a little harder than L (HARD_GRIP_US further), used while flipping
+    STATE_l   // 45 degree between CENTER and LEFT
 };
 
 enum ServoType

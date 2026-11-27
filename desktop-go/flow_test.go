@@ -83,7 +83,7 @@ func TestAppFlow(t *testing.T) {
 		waitFor(t, "arms", func() bool { return idle(c) })
 	}
 	for _, s := range []byte("FBRL") {
-		if c.rq.SliderStates()[s] != 'L' {
+		if c.rq.SliderStates()[s] != 'C' { // original Close: all sliders to C
 			t.Fatalf("after Close %c = %c", s, c.rq.SliderStates()[s])
 		}
 	}
@@ -249,7 +249,7 @@ func TestAppFlow(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitFor(t, "close after abort", func() bool { return idle(c) })
-	if s := c.sliderText(); !strings.Contains(s, "F=L") {
+	if s := c.sliderText(); !strings.Contains(s, "F=C") {
 		t.Fatalf("sliders after close: %s", s)
 	}
 }

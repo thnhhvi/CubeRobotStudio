@@ -56,7 +56,7 @@ func TestSoftenHolds(t *testing.T) {
 	if got := softenHolds(in); got != want {
 		t.Fatalf("\n got %s\nwant %s", got, want)
 	}
-	if got := softenHolds(closeSeq); got != "FCBC500RCLC" {
+	if got := softenHolds("FLBL500RLLL"); got != "FCBC500RCLC" {
 		t.Fatalf("close: %s", got)
 	}
 }
@@ -93,15 +93,3 @@ func TestFirmwareProbe(t *testing.T) {
 	}
 }
 
-func TestHardGrip(t *testing.T) {
-	in := fillSeq(defaultPlan().Steps[1].Present, 210)
-	if !strings.Contains(in, "FHBH") {
-		t.Fatalf("scan roll does not clamp hard: %s", in)
-	}
-	if got := noHardGrip(in); strings.Contains(got, "H") || len(got) != len(in) {
-		t.Fatalf("stock firmware conversion: %s", got)
-	}
-	if got := softenHolds("FHBH400RLLL"); got != "FCBC400RCLC" {
-		t.Fatalf("low power: %s", got)
-	}
-}

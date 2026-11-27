@@ -26,7 +26,6 @@ type Settings struct {
 	SolveTimeout    float64 `json:"solve_timeout"`
 	ReturnHome      bool    `json:"return_home"`
 	LowPower        bool    `json:"low_power"`
-	FlipGripUs      int     `json:"flip_grip_us"` // H clamp: this much harder than L while flipping
 }
 
 // ---------------------------------------------------------------- bus
@@ -117,7 +116,7 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
 		stateKnown: true, pose: "", thumbs: map[string]string{}, phones: map[string]map[string]any{},
 		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
@@ -290,15 +289,12 @@ func orStr(a, b string) string {
 	return a
 }
 
-// checkFirmware asks which firmware runs; the Cube Robot Studio firmware gets the grip.
+// checkFirmware asks which firmware runs.
 func (c *Controller) checkFirmware() {
 	if c.rq.ProbeFirmware() {
-		c.rq.SetGrip(c.cfg().FlipGripUs)
-		c.logf("info", "Cube Robot Studio firmware %s: flips clamp %d µs harder",
-			c.rq.FirmwareVersion(), c.cfg().FlipGripUs)
+		c.logf("info", "Cube Robot Studio firmware %s (servos wake one at a time)", c.rq.FirmwareVersion())
 	} else if !c.rq.CalibrationFirmware() {
-		c.logf("info", "Stock firmware: flips clamp at L (no hard grip) and the servos go limp 3 s after a command. "+
-			"For the hard grip upload CubeRobotFirmware.zip from the release page (calibration is kept).")
+		c.logf("info", "Stock firmware")
 	}
 	c.PushState()
 }
@@ -448,7 +444,7 @@ func (c *Controller) Jog(seq string) error {
 func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.mu.Lock()
 	s := c.settings
-	changed, grip := false, false
+	changed := false
 	for k, v := range data {
 		switch k {
 		case "delay":
@@ -484,15 +480,6 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.ReturnHome, _ = v.(bool)
 		case "low_power":
 			s.LowPower, _ = v.(bool)
-		case "flip_grip_us":
-			s.FlipGripUs = int(toFloat(v))
-			if s.FlipGripUs < 0 {
-				s.FlipGripUs = 0
-			}
-			if s.FlipGripUs > 150 {
-				s.FlipGripUs = 150
-			}
-			grip = true
 		}
 	}
 	if changed {
@@ -510,9 +497,6 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 	c.saveSettings()
 	c.mu.Unlock()
 	c.rq.SetLowPower(s.LowPower)
-	if grip {
-		c.rq.SetGrip(s.FlipGripUs)
-	}
 	c.PushState()
 	return nil
 }
@@ -824,7 +808,7 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	}
 	if useRobot && c.rq.GetOrientation() == INVERT { // a solve left the cube flipped
 		c.logf("info", "Flipping the cube back to its home orientation before scanning")
-		if err := c.rollHome(maxInt(d, 210), 0); err != nil {
+		if err := c.rollHome(d, 0); err != nil {
 			return c.scanFail(err)
 		}
 	}
@@ -832,8 +816,8 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 		st := c.rq.SliderStates()
 		for _, k := range []byte("FBRL") {
 			if st[k] != 'L' {
-				c.logf("info", "Closing the arms on the cube before scanning")
-				if err := c.rq.Run("SEQ " + closeSeq); err != nil {
+				c.logf("info", "Clamping the cube (L) before scanning")
+				if err := c.rq.Run(fmt.Sprintf("SEQ FLBL%dRLLL%d", d, d)); err != nil {
 					return c.scanFail(err)
 				}
 				break

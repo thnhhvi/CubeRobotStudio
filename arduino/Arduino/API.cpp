@@ -14,7 +14,7 @@ static char* tokens[MAX_TOKENS];
 void APISetup()
 {
     Serial.println(F("Listening for API commands, type 'HELP' for list of commands."));
-    Serial.println(F("Cube Robot Studio firmware " CRS_FIRMWARE_VERSION " (INFO GRIP, H state)"));
+    Serial.println(F("Cube Robot Studio firmware " CRS_FIRMWARE_VERSION " (INFO, servos wake one at a time)"));
     Serial.setTimeout(2000); // safer for long lines
 }
 
@@ -79,7 +79,6 @@ void APILoop()
         Serial.println(F("SEQ <string>|C"));
         Serial.println(F("MOVE <delay_ms> <orientation> <moves>"));
         Serial.println(F("INFO"));
-        Serial.println(F("GRIP [us]"));
         return;
     }
 
@@ -90,18 +89,6 @@ void APILoop()
         return;
     }
 
-    // --- GRIP (Cube Robot Studio): extra press of the H state ---
-    if (strcmp(cmd, "GRIP") == 0)
-    {
-        if (tokenCount == 2)
-        {
-            int v = atoi(tokens[1]);
-            seqManager.hardGripUs = v < 0 ? 0 : (v > 150 ? 150 : v);
-        }
-        Serial.print(F("OK GRIP "));
-        Serial.println(seqManager.hardGripUs);
-        return;
-    }
 
     // --- SEQ ---
     if (strcmp(cmd, "SEQ") == 0)
@@ -186,7 +173,6 @@ void APILoop()
             case STATE_C: Serial.println('C'); break;
             case STATE_r: Serial.println('r'); break;
             case STATE_l: Serial.println('l'); break;
-            case STATE_H: Serial.println('H'); break;
             default: Serial.println(F("ERR state")); break;
         }
         return;

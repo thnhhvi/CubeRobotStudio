@@ -42,24 +42,14 @@ instead of pressing at L, and the arms are not kept powered while waiting during
 
 ## Robot commands
 
-Slider states: **H = clamped a little harder than L** (only while the cube is flipped or rolled; set by
-*Flip grip* in the Robot panel, needs the Cube Robot Studio firmware), **L = clamped (pressing)**,
+Slider states: **L = clamped (pressing)**,
 **C = just touching**, **R = released**. Spinners: L −90°, l −45°, C 0°, r +45°, R +90°.
 
-Safety rules for the scan commands the app builds itself (solves run the firmware's own MOVE):
+All motion follows the original Yonni123 app: every step simply waits the speed delay (scans at least
+200 ms), and solves run the firmware's own `MOVE`.
 
-* **One type at a time.** A step moves sliders or spinners, never both, and the next step only starts
-  when this one is done: at least **400 ms** after sliders, **300 ms** after one spinner and **400 ms**
-  after two spinners rolling the cube (or the speed setting, if slower).
-* **Clamp before release.** One step never clamps one slider while releasing another: the clamp finishes
-  first, then the other arm lets go.
-* **Always held.** After every step at least one opposite pair (front + back or left + right) holds the cube.
-* **Hard grip while rolling (scan).** The pair carrying the cube during a scan roll clamps at H (Flip
-  grip, default 40 µs past L), the other pair lets go, and once the roll is done the other pair clamps and
-  the carriers ease back to L.
-
-* **Open:** right and left sliders to R, a **500 ms** pause, then front and back (`SEQ RRLR500FRBR`).
-* **Close:** front and back sliders to L, a **500 ms** pause, then right and left to L (`SEQ FLBL500RLLL`).
+* **Open:** all sliders to R (`SEQ RRLRFRBR`), as in the original app.
+* **Close:** all sliders to C (`SEQ RCLCFCBC`), as in the original app.
 * **Solve / Scramble:** the firmware's `MOVE` command (see *Solving* below). Scan steps are `SEQ` commands
   (never more than 250 characters; firmware buffer 256).
 
@@ -77,7 +67,7 @@ are split. With *Return home* on, a cube left flipped is flipped back at the end
 1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
 3. The face already on top is scanned first, without a roll. Each further face is rolled straight up by
-   one pair (pre-turn its grippers while released, clamp hard, the other pair lets go, roll). In the scan
+   one pair (pre-turn its grippers while released, clamp, the other pair lets go, roll). In the scan
    pose the rolling pair is **clamped at L with its grippers vertical** and the other pair **touches at C**.
    No 45° twist. Example for red front / white top: white, green, yellow, blue
    (front/back roll), red, orange (left/right roll), then one last roll brings the cube back to where it
@@ -106,10 +96,9 @@ The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 
 ## Checking the robot commands
 
-`tools/check_robot_commands.py` simulates the robot physically: stickers, layer turns, cube rolls, and
-clamping only square to a face. It enforces the safety rules above (no slider+spinner step, no clamp and
-release in one step, minimum step times, an opposite pair always holding). For scanning it also checks the scan
-pose (one pair clamped at L, the other touching at C, every gripper vertical) and the second-look hand-off. Solves are checked physically with the firmware's own MOVE servo strings.
+`tools/check_robot_commands.py` simulates the robot physically (stickers, layer turns, cube rolls,
+clamping only square to a face): solves with the firmware's own MOVE servo strings, and the scan with its
+scan pose (one pair clamped at L, the other touching at C, every gripper vertical) and second look.
 
 ```
 cd desktop-go && cp -r ../desktop/web web && DUMP_SEQ=/tmp/seqs.json go test -run TestDumpSolveSeqs .
