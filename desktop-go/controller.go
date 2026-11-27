@@ -91,6 +91,7 @@ type Controller struct {
 	link         *Link
 	rq           *RobotQueue
 	captureCh    chan map[string]any
+	confirmCh    chan string
 	heard        *Event
 	pairCode     string
 	timers       []*TLEvent
@@ -109,7 +110,7 @@ func NewController() *Controller {
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
 			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
-		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), heard: NewEvent(false)}
+		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
 	}
@@ -312,6 +313,10 @@ func (c *Controller) Abort() {
 	c.mu.Unlock()
 	select {
 	case c.captureCh <- nil:
+	default:
+	}
+	select {
+	case c.confirmCh <- "":
 	default:
 	}
 	if c.link.Connected() {
@@ -637,6 +642,9 @@ func (c *Controller) StartScan() error {
 	for len(c.captureCh) > 0 {
 		<-c.captureCh
 	}
+	for len(c.confirmCh) > 0 {
+		<-c.confirmCh
+	}
 	return c.startTask("scan", func() error { return c.scanRun(steps) })
 }
 
@@ -661,45 +669,78 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 				return c.scanFail(err)
 			}
 		}
-		c.mu.Lock()
-		s.Phase = "capture"
-		c.mu.Unlock()
 		hint := any(nil)
 		if !useRobot {
 			hint = "Hold the cube so that this face points at the camera"
 		}
-		c.bus.Emit(map[string]any{"type": "scan_prompt", "index": i, "total": len(steps),
-			"color": string(w.Color), "color_name": colorNames[w.Color], "auto": c.settings.AutoCapture,
-			"settle_ms": c.settings.CaptureSettleMs, "manual_hint": hint})
-		c.PushState()
-		data := <-c.captureCh
-		if data == nil || s.Done {
-			return c.scanFail(errors.New("aborted"))
-		}
-		tiles := data["tiles"].([]any)
-		c.mu.Lock()
-		prov := []byte(c.colors)
-		for k := 0; k < 9; k++ {
-			t := tiles[k].([]any)
-			rgb := [3]int{int(toFloat(t[0])), int(toFloat(t[1])), int(toFloat(t[2]))}
-			s.Samples[w.Cells[k]] = rgb
-			if w.Cells[k]%9 == 4 {
-				prov[w.Cells[k]] = w.Color
-			} else {
-				prov[w.Cells[k]] = nearestDefault(rgb)
+		// capture -> show the result -> wait for the user to Confirm (or Retake)
+		for {
+			c.mu.Lock()
+			s.Phase = "capture"
+			c.mu.Unlock()
+			for len(c.confirmCh) > 0 {
+				<-c.confirmCh
 			}
-		}
-		c.colors = string(prov)
-		c.scanned = append(c.scanned, string(w.Color))
-		if th, ok := data["thumb"].(string); ok && th != "" {
-			c.thumbs[string(w.Color)] = th
-		}
-		if lg, ok := data["logo"].(map[string]any); ok {
-			if det, _ := lg["detected"].(bool); det && w.Color != 'W' {
+			c.bus.Emit(map[string]any{"type": "scan_prompt", "index": i, "total": len(steps),
+				"color": string(w.Color), "color_name": colorNames[w.Color], "auto": c.settings.AutoCapture,
+				"settle_ms": c.settings.CaptureSettleMs, "manual_hint": hint})
+			c.PushState()
+			data := <-c.captureCh
+			if data == nil || s.Done {
+				return c.scanFail(errors.New("aborted"))
+			}
+			tiles := data["tiles"].([]any)
+			c.mu.Lock()
+			before := c.colors
+			prov := []byte(c.colors)
+			preview := make([]string, 9)
+			for k := 0; k < 9; k++ {
+				t := tiles[k].([]any)
+				rgb := [3]int{int(toFloat(t[0])), int(toFloat(t[1])), int(toFloat(t[2]))}
+				s.Samples[w.Cells[k]] = rgb
+				if w.Cells[k]%9 == 4 {
+					prov[w.Cells[k]] = w.Color
+				} else {
+					prov[w.Cells[k]] = nearestDefault(rgb)
+				}
+				preview[k] = string(prov[w.Cells[k]])
+			}
+			c.colors = string(prov)
+			th, _ := data["thumb"].(string)
+			if th != "" {
+				c.thumbs[string(w.Color)] = th
+			}
+			logo := false
+			if lg, ok := data["logo"].(map[string]any); ok {
+				logo, _ = lg["detected"].(bool)
+			}
+			s.Phase = "confirm"
+			c.mu.Unlock()
+			c.bus.Emit(map[string]any{"type": "scan_review", "index": i, "total": len(steps),
+				"color": string(w.Color), "color_name": colorNames[w.Color], "preview": preview,
+				"thumb": th, "logo": logo})
+			c.PushState()
+			act := <-c.confirmCh
+			if act == "" || s.Done {
+				return c.scanFail(errors.New("aborted"))
+			}
+			if act == "retake" {
+				c.mu.Lock()
+				c.colors = before
+				delete(c.thumbs, string(w.Color))
+				c.mu.Unlock()
+				continue
+			}
+			c.mu.Lock()
+			c.scanned = append(c.scanned, string(w.Color))
+			if logo && w.Color != 'W' {
 				c.warnings = append(c.warnings, fmt.Sprintf(
 					"A GAN logo was seen on the %s centre - check the front/top choice.", colorNames[w.Color]))
 			}
+			c.mu.Unlock()
+			break
 		}
+		c.mu.Lock()
 		s.Phase = "reverting"
 		c.mu.Unlock()
 		c.PushState()
@@ -779,6 +820,10 @@ func (c *Controller) CancelScan() {
 	case c.captureCh <- nil:
 	default:
 	}
+	select {
+	case c.confirmCh <- "":
+	default:
+	}
 	if c.link.Connected() && c.rq.GetState() == "BUSY" {
 		c.rq.Abort()
 	}
@@ -832,5 +877,23 @@ func (c *Controller) Pair(code string) error {
 		return errors.New("wrong code")
 	}
 	c.logf("info", "Phone paired with code %s", code)
+	return nil
+}
+
+// ConfirmScan answers the review step of the current face: "confirm" or "retake".
+func (c *Controller) ConfirmScan(action string) error {
+	c.mu.Lock()
+	ok := c.scan != nil && c.scan.Phase == "confirm"
+	if ok {
+		c.scan.Phase = "confirmed"
+	}
+	c.mu.Unlock()
+	if !ok {
+		return errors.New("Nothing to confirm right now")
+	}
+	if action != "retake" {
+		action = "confirm"
+	}
+	c.confirmCh <- action
 	return nil
 }

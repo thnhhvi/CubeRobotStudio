@@ -261,8 +261,22 @@
     const ban = $("scan-banner");
     if (sc && !sc.done) {
       ban.classList.remove("hidden");
-      const ph = { moving: "robot presenting", capture: "📷 capture on phone", reverting: "turning back" }[sc.phase] || sc.phase;
-      ban.textContent = `Scanning ${NAMES[sc.color]} (${sc.index + 1}/${sc.total}) — ${ph}`;
+      const ph = { moving: "robot presenting", capture: "📷 capture on phone", captured: "checking…",
+        confirm: "", confirmed: "turning back", reverting: "turning back" }[sc.phase] ?? sc.phase;
+      const head = `Scanning ${NAMES[sc.color]} (${sc.index + 1}/${sc.total})`;
+      if (sc.phase === "confirm") {
+        if (ban.dataset.mode !== "confirm" + sc.index) {
+          ban.dataset.mode = "confirm" + sc.index;
+          ban.innerHTML = `${head} — check the colours in the net
+            <button class="ghost" id="scan-retake">↺ Retake</button>
+            <button class="ok" id="scan-confirm">Confirm ✓</button>`;
+          $("scan-retake").onclick = () => post("/api/scan/retake");
+          $("scan-confirm").onclick = () => post("/api/scan/confirm");
+        }
+      } else {
+        ban.dataset.mode = "";
+        ban.textContent = `${head} — ${ph}`;
+      }
       view.highlight = sc.cells || null;
       if (sc.view && JSON.stringify(sc.view) !== view._scanView) {
         view._scanView = JSON.stringify(sc.view);
@@ -352,6 +366,11 @@
   $("pb-last").onclick = () => previewTo(S.solution ? S.solution.length : 0);
   $("plan-reset").onclick = () => post("/api/plan/reset").then(loadPlan);
   $("jog-go").onclick = () => post("/api/robot/jog", { seq: $("jog-free").value });
+  document.addEventListener("keydown", (e) => {
+    if (!S || !S.scan || S.scan.phase !== "confirm" || e.target.tagName === "INPUT") return;
+    if (e.key === "Enter") post("/api/scan/confirm");
+    else if (e.key.toLowerCase() === "r") post("/api/scan/retake");
+  });
   $("btn-theme").onclick = () => document.body.classList.toggle("light");
   $("btn-quit").onclick = () => {
     if (confirm("Quit Cube Robot Studio? (the robot link closes)")) post("/api/quit").then(() => window.close());

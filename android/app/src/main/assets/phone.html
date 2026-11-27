@@ -95,7 +95,8 @@
     const sc = st.scan;
     if (sc && !sc.done) {
       $("banner").classList.remove("hidden");
-      $("banner").textContent = `Scanning ${NAMES[sc.color]} ${sc.index + 1}/${sc.total}`;
+      $("banner").textContent = `Scanning ${NAMES[sc.color]} ${sc.index + 1}/${sc.total}` +
+        (sc.phase === "confirm" ? " — confirm on the camera screen" : "");
       view.highlight = sc.cells;
       if (sc.view && JSON.stringify(sc.view) !== view._sv) { view._sv = JSON.stringify(sc.view); view.setPose(sc.view, 450); }
     } else {

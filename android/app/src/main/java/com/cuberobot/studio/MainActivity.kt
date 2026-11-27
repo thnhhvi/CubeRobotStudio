@@ -59,6 +59,10 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     private lateinit var overlay: QuadOverlay
     private lateinit var prompt: TextView
     private lateinit var captureBtn: Button
+    private lateinit var resetBtn: Button
+    private lateinit var retakeBtn: Button
+    private lateinit var confirmBtn: Button
+    @Volatile private var reviewing = false
     private lateinit var connectPanel: LinearLayout
     private lateinit var hostEdit: EditText
     private lateinit var camToggle: Button
@@ -156,9 +160,15 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         captureBtn = bigButton("Capture", GRAD) { captureNow() }
-        val resetBtn = bigButton("Reset grid", "#24203d") { overlay.resetSquare() }
+        resetBtn = bigButton("Reset grid", "#24203d") { overlay.resetSquare() }
+        retakeBtn = bigButton("↺ Retake", "#24203d") { answerReview("retake") }
+        confirmBtn = bigButton("Confirm ✓ next face", GRAD) { answerReview("confirm") }
         row.addView(resetBtn, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
         row.addView(captureBtn, LinearLayout.LayoutParams(0, dp(52), 2f))
+        row.addView(retakeBtn, LinearLayout.LayoutParams(0, dp(52), 1f).apply { rightMargin = dp(8) })
+        row.addView(confirmBtn, LinearLayout.LayoutParams(0, dp(52), 2f))
+        retakeBtn.visibility = View.GONE
+        confirmBtn.visibility = View.GONE
         camPanel.addView(prompt)
         camPanel.addView(row, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(8) })
         camLayer.addView(camPanel, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT, Gravity.BOTTOM))
@@ -227,6 +237,12 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             digits.length == 6 && !raw.contains('.') -> link.connectWithCode(digits)
             else -> link.connectTo(raw)
         }
+    }
+
+    private fun colorOf(c: String): Int = when (c) {
+        "W" -> Color.rgb(235, 235, 235); "Y" -> Color.rgb(240, 220, 40); "R" -> Color.rgb(200, 20, 30)
+        "O" -> Color.rgb(250, 120, 20); "B" -> Color.rgb(20, 70, 200); "G" -> Color.rgb(20, 170, 70)
+        else -> Color.GRAY
     }
 
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
@@ -311,7 +327,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
             } else raw
             latest = upright
-            if (overlay.width > 0) {
+            if (overlay.width > 0 && !reviewing) {
                 val s = FaceSampler.sample(upright, previewView.width, previewView.height,
                     { u, v -> overlay.at(u, v) }, false)
                 ui.post {
@@ -323,6 +339,35 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         } catch (_: Exception) {
         } finally {
             proxy.close()
+        }
+    }
+
+    /** Review step: freeze the captured colours until the user confirms or retakes. */
+    private fun setReview(on: Boolean) {
+        reviewing = on
+        captureBtn.visibility = if (on) View.GONE else View.VISIBLE
+        resetBtn.visibility = if (on) View.GONE else View.VISIBLE
+        retakeBtn.visibility = if (on) View.VISIBLE else View.GONE
+        confirmBtn.visibility = if (on) View.VISIBLE else View.GONE
+        retakeBtn.isEnabled = true
+        confirmBtn.isEnabled = true
+    }
+
+    private fun answerReview(action: String) {
+        retakeBtn.isEnabled = false
+        confirmBtn.isEnabled = false
+        link.post("/api/scan/$action", JSONObject()) { res ->
+            ui.post {
+                if (res == null || !res.optBoolean("ok", false)) {
+                    retakeBtn.isEnabled = true
+                    confirmBtn.isEnabled = true
+                    prompt.text = "Could not send: ${res?.optString("error") ?: "no connection"}"
+                } else if (action == "confirm") {
+                    prompt.text = "Confirmed ✓  (robot is turning to the next face…)"
+                } else {
+                    prompt.text = "Retaking…"
+                }
+            }
         }
     }
 
@@ -355,7 +400,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 ui.post {
                     captureBtn.isEnabled = true
                     if (res != null && res.optBoolean("ok", false)) {
-                        prompt.text = "Captured ✓  (robot is turning the cube…)"
+                        prompt.text = "Captured – checking…"
                     } else {
                         waitingCapture = true
                         prompt.text = "Capture failed: ${res?.optString("error") ?: "no connection"} – tap Capture"
@@ -387,6 +432,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     override fun onEvent(ev: JSONObject) {
         when (ev.optString("type")) {
             "scan_prompt" -> ui.post {
+                setReview(false)
                 promptIndex = ev.optInt("index")
                 val name = ev.optString("color_name").uppercase()
                 val total = ev.optInt("total", 6)
@@ -403,15 +449,30 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                     ui.postDelayed(r, ev.optLong("settle_ms", 500) + 250)
                 }
             }
+            "scan_review" -> ui.post {
+                showCamera(true)
+                setReview(true)
+                val prev = ev.optJSONArray("preview")
+                if (prev != null && prev.length() == 9) {
+                    overlay.liveColors = IntArray(9) { colorOf(prev.optString(it)) }
+                    overlay.logoSeen = ev.optBoolean("logo", false)
+                    overlay.invalidate()
+                }
+                val name = ev.optString("color_name").uppercase()
+                prompt.text = "Check the $name face (${ev.optInt("index") + 1}/${ev.optInt("total", 6)}): " +
+                    "colours right?"
+            }
             "scan_done" -> ui.post {
+                setReview(false)
                 waitingCapture = false
                 prompt.text = "Scan complete ✓"
                 ui.postDelayed({ if (!waitingCapture) showCamera(userCamera) }, 900)
             }
             "state" -> {
                 val scanning = ev.optString("busy_task") == "scan"
-                if (!scanning && waitingCapture) ui.post {
+                if (!scanning && (waitingCapture || reviewing)) ui.post {
                     waitingCapture = false
+                    setReview(false)
                     showCamera(userCamera)
                 }
             }

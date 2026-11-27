@@ -154,6 +154,8 @@ func newMux(c *Controller) *http.ServeMux {
 	post("/api/scan/start", func(map[string]any) error { return c.StartScan() })
 	post("/api/scan/capture", func(b map[string]any) error { return c.Capture(b) })
 	post("/api/scan/cancel", func(map[string]any) error { c.CancelScan(); return nil })
+	post("/api/scan/confirm", func(map[string]any) error { return c.ConfirmScan("confirm") })
+	post("/api/scan/retake", func(map[string]any) error { return c.ConfirmScan("retake") })
 	post("/api/plan/reset", func(map[string]any) error { return c.SetPlan(defaultPlan()) })
 	post("/api/phone/hello", func(b map[string]any) error { c.PhoneHello(b); return nil })
 	post("/api/pair", func(b map[string]any) error { s, _ := b["code"].(string); return c.Pair(s) })
