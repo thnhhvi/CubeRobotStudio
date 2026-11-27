@@ -64,6 +64,10 @@ func TestAppFlow(t *testing.T) {
 	// ---- scan: ready -> begin -> capture -> (retake once) -> confirm x6
 	r := rand.New(rand.NewSource(3))
 	truth := applyMoves(solvedColors('R', 'W'), randomScramble(25, r))
+	// the app must not rely on the front/top setting: set a wrong one
+	if err := c.UpdateSettings(map[string]any{"front": "G", "top": "Y"}); err != nil {
+		t.Fatal(err)
+	}
 	if err := c.StartScan(); err != nil {
 		t.Fatal(err)
 	}
@@ -82,16 +86,35 @@ func TestAppFlow(t *testing.T) {
 		}
 		tiles := func(bad bool) map[string]any {
 			ts := []any{}
+			logo := false
 			for k := 0; k < 9; k++ {
 				rgb := defaultRGB[truth[w.Cells[k]]]
+				if k == 4 && truth[w.Cells[k]] == 'W' {
+					rgb = [3]int{70, 90, 190} // GAN logo: the centre reads blue-ish
+					logo = true
+				}
 				if bad {
 					rgb = [3]int{128, 128, 128}
 				}
 				ts = append(ts, []any{float64(rgb[0]), float64(rgb[1]), float64(rgb[2])})
 			}
-			return map[string]any{"tiles": ts}
+			return map[string]any{"tiles": ts, "logo": map[string]any{"detected": logo}}
+		}
+		if i == 1 { // after the first face only the position is known
+			c.mu.Lock()
+			lbl, known := c.scan.Labels[1], c.scan.Known
+			c.mu.Unlock()
+			if known || lbl != "bottom face" {
+				t.Fatalf("before 2 faces: known=%v label=%q", known, lbl)
+			}
 		}
 		if i == 2 {
+			c.mu.Lock()
+			known, lbl := c.scan.Known, c.scan.Labels[2]
+			c.mu.Unlock()
+			if !known || lbl != "blue" {
+				t.Fatalf("after 2 faces: known=%v label=%q (want blue)", known, lbl)
+			}
 			c.Capture(tiles(true))
 			waitFor(t, "confirm", func() bool { p, _ := scanPhase(c); return p == "confirm" })
 			c.ConfirmScan("retake")
@@ -111,6 +134,9 @@ func TestAppFlow(t *testing.T) {
 	c.mu.Unlock()
 	if got != truth {
 		t.Fatalf("scan wrong\n got %s\nwant %s", got, truth)
+	}
+	if st := c.cfg(); st.Front != "R" || st.Top != "W" {
+		t.Fatalf("detected orientation %s front %s top, want R/W", st.Front, st.Top)
 	}
 	if len(sol) == 0 {
 		t.Fatal("no solution after scan")

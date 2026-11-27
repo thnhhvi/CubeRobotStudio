@@ -95,8 +95,9 @@
     const sc = st.scan;
     if (sc && !sc.done) {
       $("banner").classList.remove("hidden");
+      const stp = (st.scan_steps || [])[sc.index] || {};
       $("banner").textContent = sc.phase === "ready" ? "Scan mode — tap Start scanning" :
-        `Scanning ${NAMES[sc.color]} ${sc.index + 1}/${sc.total}`;
+        `Scanning ${stp.label || "face"} ${sc.index + 1}/${sc.total}`;
       view.highlight = sc.phase === "ready" ? null : sc.cells;
       if (sc.phase !== "ready" && sc.view && JSON.stringify(sc.view) !== view._sv) { view._sv = JSON.stringify(sc.view); view.setPose(sc.view, 450); }
     } else {

@@ -114,9 +114,9 @@
         el.appendChild(s);
       }
     }
-    const order = S.scan_order.map((c) => `<b>${NAMES[c]}</b>`).join(" → ");
     $("orient-hint").innerHTML =
-      `Put <b>${NAMES[fr]}</b> in the front arm, <b>${NAMES[tp]}</b> on top. Scan order: ${order}.`;
+      `Now: <b>${NAMES[fr]}</b> in the front arm, <b>${NAMES[tp]}</b> on top. A scan finds the centre colours ` +
+      `itself from the first two faces (the GAN logo marks white), so the cube can be loaded any way round.`;
   }
 
   // ------------------------------------------------------------------ scan steps
@@ -124,15 +124,17 @@
     const box = $("scan-steps");
     const sc = S.scan;
     box.innerHTML = "";
-    S.scan_order.forEach((c, i) => {
+    (S.scan_steps || []).forEach((st, i) => {
       const d = document.createElement("div");
       const active = sc && sc.index === i && !sc.done;
-      const done = (S.scanned || []).includes(c) && !active;
+      const done = (S.scanned || []).includes(String(i)) && !active;
       d.className = "sstep" + (active ? " active" : "") + (done ? " done" : "");
-      const thumb = S.thumbs[c];
+      const thumb = S.thumbs[String(i)];
       const phase = active ? sc.phase : done ? "scanned" : "pending";
-      d.innerHTML = `<div class="sq" style="background:${thumb ? `url(data:image/jpeg;base64,${thumb})` : P[c]}"></div>
-        ${i + 1}. ${NAMES[c]}<br><span class="small">${phase}</span>`;
+      const known = st.color && st.color !== "?";
+      const bg = thumb ? `url(data:image/jpeg;base64,${thumb})` : known ? P[st.color] : "";
+      d.innerHTML = `<div class="sq${!thumb && !known ? " unknown" : ""}" style="background:${bg}"></div>
+        ${i + 1}. ${st.label}<br><span class="small">${phase}</span>`;
       box.appendChild(d);
     });
   }
@@ -262,13 +264,14 @@
       ban.classList.remove("hidden");
       const ph = { moving: "robot presenting", capture: "📷 capture on phone", captured: "checking…",
         confirm: "", confirmed: "turning back", reverting: "turning back" }[sc.phase] ?? sc.phase;
-      const head = `Scanning ${NAMES[sc.color]} (${sc.index + 1}/${sc.total})`;
+      const stp = (S.scan_steps || [])[sc.index] || {};
+      const head = `Scanning ${stp.label || "face"} (${sc.index + 1}/${sc.total})`;
       const mode = sc.phase + sc.index;
       if (ban.dataset.mode !== mode) {
         ban.dataset.mode = mode;
         const fr = NAMES[S.settings.front], tp = NAMES[S.settings.top];
         if (sc.phase === "ready") {
-          ban.innerHTML = `<span>Scan mode — load the cube: <b>${fr}</b> in the front arm, <b>${tp}</b> on top</span>
+          ban.innerHTML = `<span>Scan mode — clamp the cube in the robot (any way round; the centre colours are found from the first two faces)</span>
             <button class="ghost" id="scan-cancel">Cancel</button>
             <button class="ok" id="scan-begin">Start scanning ▶</button>`;
           $("scan-cancel").onclick = () => post("/api/scan/cancel");
@@ -407,6 +410,7 @@
   }
   api("/api/info").then((i) => {
     INFO = i;
+    $("ver").textContent = "v" + (i.version || "");
     $("ips").textContent = i.ips.map((ip) => `${ip}:${i.port}`).join(", ") || "no network";
     renderPair();
   });

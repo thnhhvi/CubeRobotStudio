@@ -103,7 +103,7 @@ func newMux(c *Controller) *http.ServeMux {
 	mux.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
 		host, _ := os.Hostname()
 		writeJSON(w, 200, map[string]any{"app": "CubeRobotStudio", "port": httpPort, "ips": localIPs(),
-			"name": host, "code": c.PairCode()})
+			"name": host, "code": c.PairCode(), "version": AppVersion})
 	})
 	mux.HandleFunc("/api/plan", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {

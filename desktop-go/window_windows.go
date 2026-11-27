@@ -13,7 +13,7 @@ func runWindow(url string) bool {
 		Debug:     false,
 		AutoFocus: true,
 		WindowOptions: webview2.WindowOptions{
-			Title:  "Cube Robot Studio",
+			Title:  "Cube Robot Studio v" + AppVersion,
 			Width:  1440,
 			Height: 900,
 			IconId: 1,

@@ -45,7 +45,7 @@ Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°
 
 ## Scanning
 
-1. Choose the colour in the **front arm** and on **top**. The net, the 3D model and the scan order follow.
+1. Clamp the cube in the robot **any way round**. Nothing is assumed about the centre colours.
 2. Press **Scan** on the laptop or the phone. Nothing moves until you press **Start scanning**.
 3. For each face, all four arms clamp. The arm holding the face **twists its layer 45°**, lets go and turns
    its gripper back to **vertical (C)**. The holding pair then rolls the cube 90°, so the face comes up on
@@ -54,12 +54,16 @@ Slider states: **L = clamped (pressing)**, **R = released**. Spinners: L −90°
    re-grips the twisted layer and untwists it.
 4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
-5. Order for red front / white top: green, yellow, blue, white (front/back arms lift), then red, orange
-   (left/right arms lift). At the end every gripper is vertical and clamped, with red front and white top.
+5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
+   app works out the cube's orientation from the two measured centres (two adjacent centres fix it). The
+   other faces then show their colours. At the end all six centres are checked again.
+   Example for red front / white top: green, yellow, blue, white (front/back arms lift), then red, orange
+   (left/right arms lift). The cube ends where it started, every gripper vertical and clamped.
 
-The colours are classified from all 54 stickers together, with 9 per colour. Centres come from the
-front/top choice, so the blue **GAN logo** on the white centre is never read as blue (the phone also
-detects it). If the result is not a valid cube, the app tries every quarter-turn of each face picture.
+The **GAN logo** on the white centre is looked for on the phone and again on the laptop (from the face
+picture). Both sample a disc, so the logo's direction does not matter, including on the 45° twisted face.
+A centre with the logo always counts as white, never blue. The colours are classified from all 54
+stickers together, with 9 per colour. If the result is not a valid cube, the app tries every quarter-turn of each face picture.
 The servo strings can be edited and jogged in **Scan sequence tuning** (saved in
 `~/.cuberobot/scan_plan.json`).
 

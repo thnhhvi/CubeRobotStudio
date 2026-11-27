@@ -12,6 +12,9 @@ import (
 	"time"
 )
 
+// AppVersion is shown in the window and reported to the phone.
+const AppVersion = "1.5"
+
 func openBrowser(url string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -44,7 +47,7 @@ func main() {
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/", httpPort)
 	fmt.Println("==============================================")
-	fmt.Println(" Cube Robot Studio")
+	fmt.Println(" Cube Robot Studio v" + AppVersion)
 	fmt.Println("==============================================")
 	fmt.Println(" Laptop UI :", url)
 	fmt.Println(" Phone app (APK): scan the QR code in the window, or type code", c.PairCode())

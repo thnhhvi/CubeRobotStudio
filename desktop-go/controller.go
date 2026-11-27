@@ -67,6 +67,10 @@ type ScanState struct {
 	View    []string
 	Cells   [9]int
 	Samples map[int][3]int
+	Labels  []string    // per step: colour name once known, else position ("left-arm face")
+	Colors  []byte      // per step: colour letter once known, else '?'
+	Obs     []centerObs // measured centres so far
+	Known   bool        // centre colours assigned (after the first two faces)
 }
 
 type Controller struct {
@@ -183,16 +187,29 @@ func (c *Controller) Snapshot() map[string]any {
 	}
 	phones := []any{}
 	for _, p := range c.phones {
-		phones = append(phones, p)
+		cp := map[string]any{}
+		for k, v := range p {
+			cp[k] = v
+		}
+		phones = append(phones, cp)
+	}
+	// copies: the snapshot is turned into JSON after the lock is released
+	thumbs := map[string]string{}
+	for k, v := range c.thumbs {
+		thumbs[k] = v
+	}
+	info := map[string]any{}
+	for k, v := range c.solutionInfo {
+		info[k] = v
 	}
 	return map[string]any{
 		"type": "state", "colors": c.colors, "state_known": c.stateKnown, "settings": c.settings,
 		"speed_range": []int{speedMin, speedMax},
 		"robot": map[string]any{"connected": c.link.Connected(), "port": c.link.Port(),
 			"state": c.rq.GetState(), "orientation": c.rq.GetOrientation()},
-		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": c.solutionInfo,
-		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": c.thumbs,
-		"scanned": append([]string{}, c.scanned...), "phones": phones,
+		"pose": c.pose, "solver_ready": c.solverReady, "solution": sol, "solution_info": info,
+		"busy_task": busy, "scan": scan, "scan_order": c.scanOrder(), "centers": cm, "thumbs": thumbs,
+		"scanned": append([]string{}, c.scanned...), "scan_steps": c.scanSteps(), "phones": phones,
 		"warnings": append([]string{}, c.warnings...), "pair_code": c.pairCode,
 	}
 }
@@ -634,20 +651,20 @@ func (c *Controller) StartScan() error {
 		c.mu.Unlock()
 		return errors.New("Busy: " + b)
 	}
-	front, top := c.settings.Front[0], c.settings.Top[0]
-	steps := walkPlan(c.plan, front, top)
-	c.scan = &ScanState{Total: len(steps), Color: steps[0].Color, Phase: "ready", StepID: steps[0].Step.ID,
-		Samples: map[int][3]int{}}
+	// the geometry (which facelets each picture shows) does not depend on the colours;
+	// the centre colours are measured during the scan
+	steps := walkPlan(c.plan, c.settings.Front[0], c.settings.Top[0])
+	labels, cols := []string{}, []byte{}
+	for _, w := range steps {
+		labels = append(labels, faceLabel(FACES[w.Cells[4]/9]))
+		cols = append(cols, '?')
+	}
+	c.scan = &ScanState{Total: len(steps), Color: '?', Phase: "ready", StepID: steps[0].Step.ID,
+		Samples: map[int][3]int{}, Labels: labels, Colors: cols}
 	c.thumbs = map[string]string{}
 	c.scanned = nil
 	c.warnings = nil
-	home := []byte(solvedColors(front, top))
-	for i := range home {
-		if i%9 != 4 {
-			home[i] = '?'
-		}
-	}
-	c.colors = string(home)
+	c.colors = strings.Repeat("?", 54)
 	c.solution = nil
 	c.solutionInfo = map[string]any{}
 	c.mu.Unlock()
@@ -663,6 +680,35 @@ func (c *Controller) StartScan() error {
 	return c.startTask("scan", func() error { return c.scanRun(steps) })
 }
 
+// assignCenters fixes the orientation from the measured centres (called with c.mu held).
+func (c *Controller) assignCenters(s *ScanState, steps []WalkStep, final bool) {
+	rank := rankOrientations(s.Obs)
+	best := rank[0]
+	prevF, prevT := c.settings.Front[0], c.settings.Top[0]
+	c.settings.Front, c.settings.Top = string(best.Front), string(best.Top)
+	centers, _ := centerColors(best.Front, best.Top)
+	col := []byte(c.colors)
+	for i := 0; i < 6; i++ {
+		col[9*i+4] = centers[FACES[i]]
+	}
+	c.colors = string(col)
+	for i, w := range walkPlan(c.plan, best.Front, best.Top) {
+		s.Colors[i] = w.Color
+		s.Labels[i] = colorNames[w.Color]
+		_ = steps
+	}
+	s.Color = s.Colors[s.Index]
+	if len(rank) > 1 && rank[1].Cost-best.Cost < 15 {
+		c.warnings = append(c.warnings, "Centre colours were hard to tell apart - check the net before solving.")
+	}
+	if final && s.Known && (best.Front != prevF || best.Top != prevT) {
+		c.warnings = append(c.warnings, "Centre colours were corrected after seeing all six faces.")
+	}
+	s.Known = true
+	c.saveSettings()
+	go c.logf("info", "Centre colours: %s in the front arm, %s on top", colorNames[best.Front], colorNames[best.Top])
+}
+
 func (c *Controller) scanRun(steps []WalkStep) error {
 	d := c.cfg().Delay
 	if c.cfg().ScanDelayMin > d {
@@ -672,22 +718,17 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	if !useRobot {
 		c.logf("info", "Robot not connected: scanning in manual mode (turn the cube by hand)")
 	}
-	centers, _ := centerColors(c.cfg().Front[0], c.cfg().Top[0])
 	s := c.scan
 	// scan mode is armed: wait until the user presses "Start scanning"
-	names := []string{}
-	for _, w := range steps {
-		names = append(names, colorNames[w.Color])
-	}
-	c.bus.Emit(map[string]any{"type": "scan_ready", "total": len(steps),
-		"front": colorNames[c.cfg().Front[0]], "top": colorNames[c.cfg().Top[0]], "order": names})
+	c.bus.Emit(map[string]any{"type": "scan_ready", "total": len(steps), "front": "", "top": ""})
 	c.PushState()
-	if ok := <-c.beginCh; !ok || s.Done {
+	if ok := <-c.beginCh; !ok || c.scanCancelled(s) {
 		return c.scanFail(errors.New("aborted"))
 	}
 	for i, w := range steps {
 		c.mu.Lock()
-		s.Index, s.Color, s.Phase, s.StepID, s.View, s.Cells = i, w.Color, "moving", w.Step.ID, w.View, w.Cells
+		s.Index, s.Color, s.Phase, s.StepID, s.View, s.Cells = i, s.Colors[i], "moving", w.Step.ID, w.View, w.Cells
+		label := s.Labels[i]
 		c.mu.Unlock()
 		c.PushState()
 		if useRobot {
@@ -708,12 +749,12 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 				<-c.confirmCh
 			}
 			c.bus.Emit(map[string]any{"type": "scan_prompt", "index": i, "total": len(steps),
-				"color": string(w.Color), "color_name": colorNames[w.Color], "auto": false,
+				"color": string(s.Colors[i]), "color_name": label, "auto": false,
 				"settle_ms": c.cfg().CaptureSettleMs, "manual_hint": hint})
 			c.PushState()
 			stopHold := c.holdPowered(useRobot)
 			data := <-c.captureCh
-			if data == nil || s.Done {
+			if data == nil || c.scanCancelled(s) {
 				stopHold()
 				return c.scanFail(errors.New("aborted"))
 			}
@@ -726,8 +767,8 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 				t := tiles[k].([]any)
 				rgb := [3]int{int(toFloat(t[0])), int(toFloat(t[1])), int(toFloat(t[2]))}
 				s.Samples[w.Cells[k]] = rgb
-				if w.Cells[k]%9 == 4 {
-					prov[w.Cells[k]] = w.Color
+				if w.Cells[k]%9 == 4 && s.Known {
+					prov[w.Cells[k]] = s.Colors[i]
 				} else {
 					prov[w.Cells[k]] = nearestDefault(rgb)
 				}
@@ -736,35 +777,45 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			c.colors = string(prov)
 			th, _ := data["thumb"].(string)
 			if th != "" {
-				c.thumbs[string(w.Color)] = th
+				c.thumbs[fmt.Sprint(i)] = th
 			}
 			logo := false
 			if lg, ok := data["logo"].(map[string]any); ok {
 				logo, _ = lg["detected"].(bool)
 			}
+			if !logo && th != "" { // laptop double-check, any logo direction
+				logo, _ = logoInThumb(th)
+			}
+			if logo && w.Cells[4]%9 == 4 {
+				prov[w.Cells[4]] = 'W'
+				preview[4] = "W"
+				c.colors = string(prov)
+			}
 			s.Phase = "confirm"
 			c.mu.Unlock()
 			c.bus.Emit(map[string]any{"type": "scan_review", "index": i, "total": len(steps),
-				"color": string(w.Color), "color_name": colorNames[w.Color], "preview": preview,
+				"color": string(s.Colors[i]), "color_name": label, "preview": preview,
 				"thumb": th, "logo": logo})
 			c.PushState()
 			act := <-c.confirmCh
 			stopHold()
-			if act == "" || s.Done {
+			if act == "" || c.scanCancelled(s) {
 				return c.scanFail(errors.New("aborted"))
 			}
 			if act == "retake" {
 				c.mu.Lock()
 				c.colors = before
-				delete(c.thumbs, string(w.Color))
+				delete(c.thumbs, fmt.Sprint(i))
 				c.mu.Unlock()
 				continue
 			}
 			c.mu.Lock()
-			c.scanned = append(c.scanned, string(w.Color))
-			if logo && w.Color != 'W' {
-				c.warnings = append(c.warnings, fmt.Sprintf(
-					"A GAN logo was seen on the %s centre - check the front/top choice.", colorNames[w.Color]))
+			c.scanned = append(c.scanned, fmt.Sprint(i))
+			ct := tiles[4].([]any)
+			s.Obs = append(s.Obs, centerObs{Face: FACES[w.Cells[4]/9],
+				RGB: [3]int{int(toFloat(ct[0])), int(toFloat(ct[1])), int(toFloat(ct[2]))}, Logo: logo})
+			if !s.Known && len(s.Obs) >= 2 {
+				c.assignCenters(s, steps, false) // after the first two faces
 			}
 			c.mu.Unlock()
 			break
@@ -779,6 +830,19 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			}
 		}
 	}
+	c.mu.Lock()
+	c.assignCenters(s, steps, true) // re-check with all six centres
+	centers, _ := centerColors(c.settings.Front[0], c.settings.Top[0])
+	logos := 0
+	for _, o := range s.Obs {
+		if o.Logo {
+			logos++
+			if centers[o.Face] != 'W' {
+				c.warnings = append(c.warnings, "A GAN logo was seen on a centre that is not white - check it.")
+			}
+		}
+	}
+	c.mu.Unlock()
 	cols := classify(s.Samples, centers)
 	fixed, rots, ok := autoOrient(cols)
 	c.mu.Lock()
@@ -1015,4 +1079,25 @@ func (c *Controller) sliderText() string {
 		out += string(s) + "=" + string(v) + " "
 	}
 	return strings.TrimSpace(out)
+}
+
+// scanSteps lists the scan steps for the UI (called with c.mu held).
+func (c *Controller) scanSteps() []map[string]string {
+	out := []map[string]string{}
+	if c.scan != nil {
+		for i := range c.scan.Labels {
+			out = append(out, map[string]string{"label": c.scan.Labels[i], "color": string(c.scan.Colors[i])})
+		}
+		return out
+	}
+	for _, w := range walkPlan(c.plan, c.settings.Front[0], c.settings.Top[0]) {
+		out = append(out, map[string]string{"label": colorNames[w.Color], "color": string(w.Color)})
+	}
+	return out
+}
+
+func (c *Controller) scanCancelled(s *ScanState) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return s.Done
 }

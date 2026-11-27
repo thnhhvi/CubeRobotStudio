@@ -48,6 +48,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), Link.Listener {
     companion object {
         const val GRAD = "gradient"
+        const val VERSION = "1.5"
     }
     private var loadedHost: String? = null
 
@@ -115,7 +116,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             setPadding(dp(12), dp(8), dp(8), dp(8))
             gravity = Gravity.CENTER_VERTICAL
         }
-        status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; text = "Starting…" }
+        status = TextView(this).apply { setTextColor(Color.WHITE); textSize = 13f; text = "Cube Robot v$VERSION" }
         camToggle = smallButton("Camera") {
             userCamera = !userCamera
             showCamera(userCamera || waitingCapture)
@@ -181,7 +182,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             setPadding(dp(24), dp(40), dp(24), dp(24))
         }
         val title = TextView(this).apply {
-            text = "Connect to Cube Robot Studio"; setTextColor(Color.WHITE); textSize = 22f
+            text = "Connect to Cube Robot Studio  v$VERSION"; setTextColor(Color.WHITE); textSize = 22f
             typeface = Typeface.DEFAULT_BOLD
         }
         val help = TextView(this).apply {
@@ -351,8 +352,9 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             showCamera(true)
             captureBtn.text = "Start scanning ▶"
             captureBtn.isEnabled = true
-            prompt.text = "Scan mode: put ${front.uppercase()} in the front arm and ${top.uppercase()} on top, " +
-                "fit the 4 blue corners to where the robot shows the face, then tap Start scanning."
+            prompt.text = "Scan mode: clamp the cube in the robot (any way round - the centre colours are " +
+                "found from the first two faces), fit the 4 blue corners to where the robot shows the face, " +
+                "then tap Start scanning."
         } else {
             captureBtn.text = "📷 Scan face"
         }
@@ -469,7 +471,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 setReady(false)
                 setReview(false)
                 promptIndex = ev.optInt("index")
-                val name = ev.optString("color_name").uppercase()
+                val name = ev.optString("color_name").uppercase()  // colour, or position for the first two
                 val total = ev.optInt("total", 6)
                 waitingCapture = true
                 showCamera(true)

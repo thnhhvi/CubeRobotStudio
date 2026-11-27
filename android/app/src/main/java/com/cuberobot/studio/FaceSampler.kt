@@ -60,20 +60,22 @@ object FaceSampler {
             preview[r * 3 + c] = nearestColor(rgb)
         }
 
-        // --- centre: GAN logo check (blue logo on the white centre cap) ---
+        // --- centre: GAN logo check (blue mark on the white centre cap). A disc is sampled
+        // so the result is the same whichever way the logo faces (also on a 45-degree twist).
         var white = 0; var blue = 0; var total = 0
         val ring = ArrayList<Int>()
-        val m = 15
+        val m = 25
         for (i in 0 until m) for (j in 0 until m) {
             val fu = i / (m - 1f); val fv = j / (m - 1f)
-            val p = px((1f + 0.1f + 0.8f * fu) / 3f, (1f + 0.1f + 0.8f * fv) / 3f)
+            val dist = sqrt((fu - 0.5f) * (fu - 0.5f) + (fv - 0.5f) * (fv - 0.5f))
+            if (dist > 0.42f) continue
+            val p = px((1f + fu) / 3f, (1f + fv) / 3f)
             val hsv = FloatArray(3)
             Color.colorToHSV(p, hsv)
             total++
             if (hsv[1] < 0.28f && hsv[2] > 0.45f) white++
             if (hsv[0] in 190f..265f && hsv[1] > 0.35f && hsv[2] > 0.18f) blue++
-            val du = fu - 0.5f; val dv = fv - 0.5f
-            if (sqrt(du * du + dv * dv) > 0.38f) ring.add(p)
+            if (dist > 0.30f) ring.add(p)
         }
         val wf = white.toFloat() / total
         val bf = blue.toFloat() / total
