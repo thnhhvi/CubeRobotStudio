@@ -29,39 +29,66 @@ type ScanPlan struct {
 }
 
 func defaultPlan() ScanPlan {
-	// every slider that holds the cube is at L (clamped); R = released
+	// Sliders: L = clamped, R = released. Spinner angles: L -90, l -45, C 0, r +45, R +90.
+	// A gripper can only clamp square to a face (C or +-90). While the cube turns about one
+	// axis, the released pair's grippers are turned HORIZONTAL (+-90, prongs along the turn
+	// axis) so the corners of the turning cube cannot hit them. Before each lift the robot
+	// changes axis: the lifting pair clamps, the other pair releases, turns horizontal and
+	// clamps again; then the lifting pair re-grips at its start angle, the other pair
+	// releases, and the face is lifted 45 deg towards the robot front for the camera.
 	a := func(id string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
-			Present: "RLLLFRBR{d}fLbR{d}FLBL{d}RRLR{d}frbl{d}",
-			Revert:  "fCfCbCbC{d}RLLL{d}",
-			View:    []string{"z"}, Keep: []string{"z"}}
+			// right/left grippers horizontal; front/back re-grip at -90; lift 135 deg (L -> r)
+			Present: "FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}fLbR{d}FLBL{d}RRLR{d}frbl{d}",
+			// back 45 deg: cube square again (net 90 deg); right/left clamp (still horizontal)
+			Revert: "fCfCbCbC{d}RLLL{d}",
+			View:   []string{"z"}, Keep: []string{"z"}}
 	}
-	return ScanPlan{CameraFace: "U", Version: 2, Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 3, Steps: []ScanStep{
 		a("A1"), a("A2"), a("A3"), a("A4"),
-		{ID: "B1", Axis: "left/right", Present: "RLLLFRBR{d}rrll{d}",
-			Revert: "rCrClClC{d}FLBL{d}", View: []string{"x"}, Keep: []string{}},
-		{ID: "B2", Axis: "left/right", Present: "FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}",
-			Revert: "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}", View: []string{"x'"}, Keep: []string{}},
+		// front/back grippers horizontal; right/left re-grip at -90; lift 45 deg (L -> l): red up
+		{ID: "B1", Axis: "left/right",
+			Present: "RLLLFRBR{d}fRbL{d}FLBL{d}RRLR{d}rLlR{d}RLLL{d}FRBR{d}rllr{d}",
+			Revert:  "rLlR{d}FLBL{d}", View: []string{"x"}, Keep: []string{}},
+		// right/left re-grip at +90; lift 135 deg the other way (R -> l): orange up
+		{ID: "B2", Axis: "left/right",
+			Present: "RLLLFRBR{d}fRbL{d}FLBL{d}RRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}",
+			// back to home, then every gripper back to vertical (C) and clamped for solving
+			Revert: "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}FRBR{d}fCfCbCbC{d}FLBL{d}",
+			View:   []string{"x'"}, Keep: []string{}},
 	}}
 }
 
-// v1 defaults left the sliders at C; saved plans are upgraded in place to clamp at L.
-var v1Upgrade = map[string]string{
-	"fCfCbCbC{d}RCLC{d}FCBC":                      "fCfCbCbC{d}RLLL{d}",
-	"rCrClClC{d}FCBC{d}RCLC":                      "rCrClClC{d}FLBL{d}",
-	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}",
+// Older default strings (v1: sliders at C, v2: diagonal grippers) are replaced by the
+// current defaults; steps the user edited are kept.
+var oldDefaults = map[string]bool{
+	"RLLLFRBR{d}fLbR{d}FLBL{d}RRLR{d}frbl{d}":     true,
+	"fCfCbCbC{d}RCLC{d}FCBC":                      true,
+	"fCfCbCbC{d}RLLL{d}":                          true,
+	"RLLLFRBR{d}rrll{d}":                          true,
+	"rCrClClC{d}FCBC{d}RCLC":                      true,
+	"rCrClClC{d}FLBL{d}":                          true,
+	"FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}":     true,
+	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": true,
+	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}":     true,
 }
 
 func upgradePlan(p ScanPlan) ScanPlan {
-	if p.Version >= 2 {
+	if p.Version >= 3 {
 		return p
 	}
-	for i := range p.Steps {
-		if n, ok := v1Upgrade[p.Steps[i].Revert]; ok {
-			p.Steps[i].Revert = n
+	def := map[string]ScanStep{}
+	for _, st := range defaultPlan().Steps {
+		def[st.ID] = st
+	}
+	for i, st := range p.Steps {
+		d, ok := def[st.ID]
+		if ok && oldDefaults[st.Present] && oldDefaults[st.Revert] {
+			d.ImageRot = st.ImageRot
+			p.Steps[i] = d
 		}
 	}
-	p.Version = 2
+	p.Version = 3
 	return p
 }
 
