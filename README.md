@@ -89,9 +89,13 @@ Safety rules for every command the app sends (solve, scramble, scan):
    pair waits **released at R**. Example for red front / white top: white, green, yellow, blue
    (front/back roll), red, orange (left/right roll), then one last roll brings the cube back to where it
    started.
-4. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
+4. **Change face / Auto change.** With *Auto change* on (switch in the scan banner, laptop and phone) the
+   robot turns to the next face right after Confirm. Before the last face (the one opposite the face just
+   scanned) it switches itself off: check or adjust the cube by hand, then press **Change face ▶** (or
+   Enter). With Auto change off, every face waits for Change face.
+5. Aim the phone and press **📷 Scan face**, on the phone or on the laptop (the laptop tells the phone to
    capture). Then press **Confirm ✓** or **↺ Retake**. Keyboard: Enter = next step, R = retake.
-5. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
+6. The first two faces are shown by position ("left-arm face", "bottom face"). After the second face the
    app works out the cube's orientation from the two measured centres (two adjacent centres fix it). The
    other faces then show their colours. At the end all six centres are checked again.
    The cube ends where it started, every gripper vertical and clamped.

@@ -29,6 +29,7 @@ type Settings struct {
 	FlipGripUs      int     `json:"flip_grip_us"` // H clamp: this much harder than L while flipping
 	SyncMs          int     `json:"sync_ms"`      // time of one synced step (paired servos)
 	FollowPct       int     `json:"follow_pct"`   // following sliders back off this % of C->R at 45 deg
+	AutoNext        bool    `json:"auto_next"`    // scan: move on to the next face right after Confirm
 }
 
 // ---------------------------------------------------------------- bus
@@ -102,6 +103,7 @@ type Controller struct {
 	captureCh    chan map[string]any
 	confirmCh    chan string
 	beginCh      chan bool
+	nextCh       chan bool // scan: "Change face" pressed
 	heard        *Event
 	reconnecting bool
 	pairCode     string
@@ -119,9 +121,9 @@ func configDir() string {
 func NewController() *Controller {
 	c := &Controller{bus: &Bus{subs: map[chan []byte]bool{}}, cfgDir: configDir(),
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
-			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000, FollowPct: 60},
+			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true, FlipGripUs: 40, SyncMs: 1000, FollowPct: 60, AutoNext: true},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
-		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
+		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), nextCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
 	}
@@ -437,6 +439,10 @@ func (c *Controller) Abort() {
 	case c.beginCh <- false:
 	default:
 	}
+	select {
+	case c.nextCh <- false:
+	default:
+	}
 	if c.link.Connected() {
 		c.rq.Abort()
 	}
@@ -495,6 +501,8 @@ func (c *Controller) UpdateSettings(data map[string]any) error {
 			s.ReturnHome, _ = v.(bool)
 		case "low_power":
 			s.LowPower, _ = v.(bool)
+		case "auto_next":
+			s.AutoNext, _ = v.(bool)
 		case "sync_ms":
 			s.SyncMs = int(toFloat(v))
 			if s.SyncMs < 600 {
@@ -798,6 +806,9 @@ func (c *Controller) StartScan() error {
 	for len(c.beginCh) > 0 {
 		<-c.beginCh
 	}
+	for len(c.nextCh) > 0 {
+		<-c.nextCh
+	}
 	return c.startTask("scan", func() error { return c.scanRun(steps) })
 }
 
@@ -972,6 +983,33 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 			}
 			c.mu.Unlock()
 			break
+		}
+		if i < len(steps)-1 {
+			if i == len(steps)-2 && c.cfg().AutoNext {
+				// the last face is the hard one (opposite of the one just scanned): stop
+				// here so the cube can be checked/adjusted before the robot turns it
+				c.mu.Lock()
+				c.settings.AutoNext = false
+				c.saveSettings()
+				c.mu.Unlock()
+				c.logf("info", "Auto change switched off for the last face: adjust the cube if needed, then press Change face")
+			}
+			if !c.cfg().AutoNext {
+				for len(c.nextCh) > 0 {
+					<-c.nextCh
+				}
+				c.mu.Lock()
+				s.Phase = "next"
+				c.mu.Unlock()
+				c.bus.Emit(map[string]any{"type": "scan_next", "index": i, "total": len(steps)})
+				c.PushState()
+				stopHold := c.holdPowered(useRobot)
+				ok := <-c.nextCh
+				stopHold()
+				if !ok || c.scanCancelled(s) {
+					return c.scanFail(errors.New("aborted"))
+				}
+			}
 		}
 		c.mu.Lock()
 		s.Phase = "reverting"
@@ -1196,6 +1234,10 @@ func (c *Controller) CancelScan() {
 	case c.beginCh <- false:
 	default:
 	}
+	select {
+	case c.nextCh <- false:
+	default:
+	}
 	if c.link.Connected() && c.rq.GetState() == "BUSY" {
 		c.rq.Abort()
 	}
@@ -1308,6 +1350,21 @@ func (c *Controller) ConfirmScan(action string) error {
 }
 
 // BeginScan: the user pressed "Start scanning" (cube loaded with the chosen front/top).
+// NextFace is the "Change face" button: the robot turns the cube to the next face.
+func (c *Controller) NextFace() error {
+	c.mu.Lock()
+	ok := c.scan != nil && c.scan.Phase == "next"
+	if ok {
+		c.scan.Phase = "reverting"
+	}
+	c.mu.Unlock()
+	if !ok {
+		return errors.New("Not waiting to change face (confirm the face first)")
+	}
+	c.nextCh <- true
+	return nil
+}
+
 func (c *Controller) BeginScan() error {
 	c.mu.Lock()
 	ok := c.scan != nil && c.scan.Phase == "ready"

@@ -198,6 +198,15 @@ func TestAppFlow(t *testing.T) {
 		if err := c.ConfirmScan("confirm"); err != nil {
 			t.Fatal(err)
 		}
+		if i == len(steps)-2 { // auto change stops before the last face
+			waitFor(t, "change face", func() bool { p, _ := scanPhase(c); return p == "next" })
+			if c.cfg().AutoNext {
+				t.Fatal("auto change still on before the last face")
+			}
+			if err := c.NextFace(); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	waitFor(t, "scan end", func() bool { return idle(c) })
 	c.mu.Lock()

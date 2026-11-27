@@ -275,11 +275,13 @@
     if (sc && !sc.done) {
       ban.classList.remove("hidden");
       const ph = { moving: "robot presenting", capture: "📷 capture on phone", captured: "checking…",
-        confirm: "", confirmed: "turning back", reverting: "turning back" }[sc.phase] ?? sc.phase;
+        confirm: "", confirmed: "turning back", reverting: "turning to the next face", next: "waiting for Change face" }[sc.phase] ?? sc.phase;
       const stp = (S.scan_steps || [])[sc.index] || {};
       const head = `Scanning ${stp.label || "face"} (${sc.index + 1}/${sc.total})` +
         (sc.second_look ? " · second look (other arms holding, grippers off the hidden stickers)" : "");
-      const mode = sc.phase + sc.index + (sc.second_look ? "b" : "");
+      const mode = sc.phase + sc.index + (sc.second_look ? "b" : "") + (S.settings.auto_next ? "a" : "m");
+      const autoBox = `<label class="check" title="On: the robot turns to the next face right after Confirm. It switches itself off before the last face, so you can check the cube first.">
+            <input type="checkbox" id="scan-auto" ${S.settings.auto_next ? "checked" : ""}> Auto change</label>`;
       if (ban.dataset.mode !== mode) {
         ban.dataset.mode = mode;
         const fr = NAMES[S.settings.front], tp = NAMES[S.settings.top];
@@ -290,21 +292,26 @@
           $("scan-cancel").onclick = () => post("/api/scan/cancel");
           $("scan-begin").onclick = () => post("/api/scan/begin");
         } else if (sc.phase === "capture") {
-          ban.innerHTML = `<span>${head} — aim the phone, then</span>
+          ban.innerHTML = `<span>${head} — aim the phone, then</span>${autoBox}
             <button class="ok" id="scan-trigger">📷 Scan face</button>`;
           $("scan-trigger").onclick = () => post("/api/scan/trigger");
         } else if (sc.phase === "confirm") {
-          ban.innerHTML = `<span>${head} — check the colours in the net</span>
+          ban.innerHTML = `<span>${head} — check the colours in the net</span>${autoBox}
             <button class="ghost" id="scan-retake">↺ Retake</button>
             <button class="ok" id="scan-confirm">Confirm ✓</button>`;
           $("scan-retake").onclick = () => post("/api/scan/retake");
           $("scan-confirm").onclick = () => post("/api/scan/confirm");
+        } else if (sc.phase === "next") {
+          ban.innerHTML = `<span>${head} — scanned ✓. Check or adjust the cube, then</span>${autoBox}
+            <button class="ok" id="scan-next">Change face ▶</button>`;
+          $("scan-next").onclick = () => post("/api/scan/next");
         } else {
           const ph = { moving: sc.second_look ? "handing the cube to the other arms…" : "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
-            reverting: "turning back…" }[sc.phase] ?? sc.phase;
+            reverting: "turning to the next face…" }[sc.phase] ?? sc.phase;
           ban.textContent = `${head} — ${ph}`;
         }
       }
+      if ($("scan-auto")) $("scan-auto").onchange = (e) => post("/api/settings", { auto_next: e.target.checked });
       view.highlight = sc.phase === "ready" ? null : sc.cells || null;
       if (sc.phase !== "ready" && sc.view && JSON.stringify(sc.view) !== view._scanView) {
         view._scanView = JSON.stringify(sc.view);
@@ -417,6 +424,7 @@
       if (ph === "ready") post("/api/scan/begin");
       else if (ph === "capture") post("/api/scan/trigger");
       else if (ph === "confirm") post("/api/scan/confirm");
+      else if (ph === "next") post("/api/scan/next");
     } else if (e.key.toLowerCase() === "r" && ph === "confirm") post("/api/scan/retake");
   });
   $("btn-theme").onclick = () => document.body.classList.toggle("light");

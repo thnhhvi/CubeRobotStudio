@@ -50,7 +50,7 @@ import java.util.concurrent.Executors
 class MainActivity : AppCompatActivity(), Link.Listener {
     companion object {
         const val GRAD = "gradient"
-        const val VERSION = "2.5"
+        const val VERSION = "2.6"
     }
     private var loadedHost: String? = null
 
@@ -552,6 +552,12 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                     captureBtn.isEnabled = true
                     prompt.text = "Aim at the ${(names[sc?.optString("color")] ?: "").uppercase()} face " +
                         "(${promptIndex + 1}/${sc?.optInt("total") ?: 6}), then tap Scan face"
+                }
+                if (scanning && phase == "next") ui.post {
+                    waitingCapture = false
+                    setReview(false)
+                    prompt.text = "Face ${(sc?.optInt("index") ?: 0) + 1} done ✓ – check or adjust the cube, " +
+                        "then press Change face (3D view or laptop)"
                 }
                 if (scanning && phase == "confirm" && !reviewing) ui.post {
                     showCamera(true)
