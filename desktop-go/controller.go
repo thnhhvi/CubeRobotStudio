@@ -92,6 +92,7 @@ type Controller struct {
 	rq           *RobotQueue
 	captureCh    chan map[string]any
 	confirmCh    chan string
+	beginCh      chan bool
 	heard        *Event
 	pairCode     string
 	timers       []*TLEvent
@@ -110,7 +111,7 @@ func NewController() *Controller {
 		settings: Settings{Delay: 210, Front: "R", Top: "W", AutoCapture: true, CaptureSettleMs: 500,
 			ScanDelayMin: 200, SolveTimeout: 3, ReturnHome: true},
 		stateKnown: true, pose: "NORMAL", thumbs: map[string]string{}, phones: map[string]map[string]any{},
-		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), heard: NewEvent(false)}
+		solutionInfo: map[string]any{}, captureCh: make(chan map[string]any, 4), confirmCh: make(chan string, 4), beginCh: make(chan bool, 2), heard: NewEvent(false)}
 	if b, err := os.ReadFile(filepath.Join(c.cfgDir, "settings.json")); err == nil {
 		json.Unmarshal(b, &c.settings)
 	}
@@ -319,6 +320,10 @@ func (c *Controller) Abort() {
 	case c.confirmCh <- "":
 	default:
 	}
+	select {
+	case c.beginCh <- false:
+	default:
+	}
 	if c.link.Connected() {
 		c.rq.Abort()
 	}
@@ -525,10 +530,9 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 	rm := toRobotMoves(moves)
 	c.bus.Emit(map[string]any{"type": "run", "moves": moves, "solve": isSolve, "delay": d})
 	idx := 0
-	for _, chunk := range chunkMoves(rm) {
-		o := c.rq.Orientation
-		events, endO, total := buildTimeline(chunk, o, d)
-		tBusy, err := c.rq.Start(fmt.Sprintf("MOVE %d %d %s", d, o, chunk))
+	for _, b := range buildSeqBatches(rm, c.rq.Orientation, d) {
+		events, _, total := buildTimeline(b.Moves, b.StartOrient, d)
+		tBusy, err := c.rq.Start("SEQ " + b.Seq)
 		if err != nil {
 			return err
 		}
@@ -540,7 +544,7 @@ func (c *Controller) runMoves(moves []string, isSolve bool) error {
 			return errors.New("aborted")
 		}
 		c.flushTimers()
-		c.rq.Orientation = endO
+		c.rq.Orientation = b.EndOrient
 	}
 	if c.settings.ReturnHome && c.rq.Orientation == INVERT {
 		tBusy, err := c.rq.Start("SEQ " + rotateCubeSeq(NORMAL, d))
@@ -624,7 +628,7 @@ func (c *Controller) StartScan() error {
 	}
 	front, top := c.settings.Front[0], c.settings.Top[0]
 	steps := walkPlan(c.plan, front, top)
-	c.scan = &ScanState{Total: len(steps), Color: steps[0].Color, Phase: "moving", StepID: steps[0].Step.ID,
+	c.scan = &ScanState{Total: len(steps), Color: steps[0].Color, Phase: "ready", StepID: steps[0].Step.ID,
 		Samples: map[int][3]int{}}
 	c.thumbs = map[string]string{}
 	c.scanned = nil
@@ -645,6 +649,9 @@ func (c *Controller) StartScan() error {
 	for len(c.confirmCh) > 0 {
 		<-c.confirmCh
 	}
+	for len(c.beginCh) > 0 {
+		<-c.beginCh
+	}
 	return c.startTask("scan", func() error { return c.scanRun(steps) })
 }
 
@@ -659,6 +666,17 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 	}
 	centers, _ := centerColors(c.settings.Front[0], c.settings.Top[0])
 	s := c.scan
+	// scan mode is armed: wait until the user presses "Start scanning"
+	names := []string{}
+	for _, w := range steps {
+		names = append(names, colorNames[w.Color])
+	}
+	c.bus.Emit(map[string]any{"type": "scan_ready", "total": len(steps),
+		"front": colorNames[c.settings.Front[0]], "top": colorNames[c.settings.Top[0]], "order": names})
+	c.PushState()
+	if ok := <-c.beginCh; !ok || s.Done {
+		return c.scanFail(errors.New("aborted"))
+	}
 	for i, w := range steps {
 		c.mu.Lock()
 		s.Index, s.Color, s.Phase, s.StepID, s.View, s.Cells = i, w.Color, "moving", w.Step.ID, w.View, w.Cells
@@ -682,7 +700,7 @@ func (c *Controller) scanRun(steps []WalkStep) error {
 				<-c.confirmCh
 			}
 			c.bus.Emit(map[string]any{"type": "scan_prompt", "index": i, "total": len(steps),
-				"color": string(w.Color), "color_name": colorNames[w.Color], "auto": c.settings.AutoCapture,
+				"color": string(w.Color), "color_name": colorNames[w.Color], "auto": false,
 				"settle_ms": c.settings.CaptureSettleMs, "manual_hint": hint})
 			c.PushState()
 			data := <-c.captureCh
@@ -824,6 +842,10 @@ func (c *Controller) CancelScan() {
 	case c.confirmCh <- "":
 	default:
 	}
+	select {
+	case c.beginCh <- false:
+	default:
+	}
 	if c.link.Connected() && c.rq.GetState() == "BUSY" {
 		c.rq.Abort()
 	}
@@ -895,5 +917,35 @@ func (c *Controller) ConfirmScan(action string) error {
 		action = "confirm"
 	}
 	c.confirmCh <- action
+	return nil
+}
+
+// BeginScan: the user pressed "Start scanning" (cube loaded with the chosen front/top).
+func (c *Controller) BeginScan() error {
+	c.mu.Lock()
+	ok := c.scan != nil && c.scan.Phase == "ready"
+	if ok {
+		c.scan.Phase = "moving"
+	}
+	c.mu.Unlock()
+	if !ok {
+		return errors.New("Scan mode is not waiting to start")
+	}
+	c.beginCh <- true
+	return nil
+}
+
+// TriggerCapture: "Scan face" pressed on the laptop -> the phone captures now.
+func (c *Controller) TriggerCapture() error {
+	c.mu.Lock()
+	ok := c.scan != nil && c.scan.Phase == "capture"
+	c.mu.Unlock()
+	if !ok {
+		return errors.New("Not waiting for a face to be scanned")
+	}
+	if len(c.Snapshot()["phones"].([]any)) == 0 {
+		return errors.New("No phone connected - pair the phone first")
+	}
+	c.bus.Emit(map[string]any{"type": "capture_now"})
 	return nil
 }

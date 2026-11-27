@@ -92,8 +92,9 @@ body.light .viewer { background: radial-gradient(circle at 50% 45%, #fff 0%, #e4
   padding: 3px 8px; font-size: 11px; }
 .robot-front { align-self: flex-end; font-size: 11px; color: var(--muted); }
 .scan-banner { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); padding: 8px 16px;
-  border-radius: 999px; background: var(--grad); color: #fff; font-weight: 600; white-space: nowrap;
-  display: flex; align-items: center; gap: 10px; }
+  border-radius: 18px; background: var(--grad); color: #fff; font-weight: 600;
+  display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 10px;
+  max-width: calc(100% - 28px); width: max-content; text-align: center; box-shadow: 0 8px 30px -10px #0600AB; }
 .scan-banner button { padding: 5px 12px; border-radius: 999px; color: #fff; border-color: #fff8; }
 .scan-banner button.ok { background: #fff; color: #0600AB; border-color: #fff; font-weight: 700; }
 

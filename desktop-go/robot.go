@@ -19,8 +19,8 @@ const (
 	INVERT   = 1
 	moveBuf  = 60
 	seqBuf   = 250
-	openSeq  = "RRLRFRBR"
-	closeSeq = "RCLCFCBC"
+	openSeq  = "RRLRFRBR" // all sliders R: released, cube can be taken out
+	closeSeq = "RLLLFLBL" // all sliders L: clamped
 )
 
 func toRobotMoves(moves []string) string {
@@ -51,12 +51,74 @@ func orientationAfter(ch byte, cur int) int {
 	return cur
 }
 
+// rotateCubeSeq flips the cube between NORMAL and INVERT (same steps as the
+// firmware's rotateCube) but every slider that holds the cube ends at L (clamped).
 func rotateCubeSeq(o, d int) string {
 	pre := "fLbR"
 	if o == INVERT {
 		pre = "fRbL"
 	}
-	return fmt.Sprintf("RLLLFRBR%d%s%dFLBL%dRRLR%dfCfCbCbC%dRCLC%dFCBC", d, pre, d, d, d, d, d)
+	return fmt.Sprintf("RLLLFRBR%d%s%dFLBL%dRRLR%dfCfCbCbC%dRLLL%d", d, pre, d, d, d, d, d)
+}
+
+// faceSeq turns one face (robot char, e.g. 'U' or 'u') with the arm that holds it;
+// the slider re-clamps at L afterwards (the firmware's MOVE would leave it at C).
+func faceSeq(ch byte, orient, d int) string {
+	up := byte(unicode.ToUpper(rune(ch)))
+	cw := unicode.IsUpper(rune(ch))
+	var arm byte
+	switch up {
+	case 'F':
+		arm = 'f'
+	case 'B':
+		arm = 'b'
+	case 'U', 'L':
+		arm = 'l'
+	case 'D', 'R':
+		arm = 'r'
+	}
+	dir := "R"
+	if !cw {
+		dir = "L"
+	}
+	slider := string(unicode.ToUpper(rune(arm)))
+	a := string(arm)
+	return fmt.Sprintf("%s%s%d%sR%d%sC%sC%d%sL%d", a, dir, d, slider, d, a, a, d, slider, d)
+}
+
+// SeqBatch is one SEQ command (fits the firmware buffer) and the moves it performs.
+type SeqBatch struct {
+	Seq         string
+	Moves       string
+	StartOrient int
+	EndOrient   int
+}
+
+func buildSeqBatches(rm string, orient, d int) []SeqBatch {
+	out := []SeqBatch{}
+	cur := SeqBatch{StartOrient: orient}
+	for i := 0; i < len(rm); i++ {
+		ch := rm[i]
+		part := ""
+		no := orientationAfter(ch, orient)
+		if no != orient {
+			part += rotateCubeSeq(no, d)
+		}
+		part += faceSeq(ch, no, d)
+		if len(cur.Seq)+len(part) > seqBuf && cur.Seq != "" {
+			cur.EndOrient = orient
+			out = append(out, cur)
+			cur = SeqBatch{StartOrient: orient}
+		}
+		cur.Seq += part
+		cur.Moves += string(ch)
+		orient = no
+	}
+	if cur.Seq != "" {
+		cur.EndOrient = orient
+		out = append(out, cur)
+	}
+	return out
 }
 
 type TLEvent struct {

@@ -198,11 +198,10 @@
     $("btn-calc").disabled = !S.solver_ready || !!S.busy_task;
     if (document.activeElement !== $("speed")) $("speed").value = S.settings.delay;
     $("speed-val").textContent = S.settings.delay + " ms";
-    $("auto-capture").checked = !!S.settings.auto_capture;
     $("pose-badge").textContent = S.pose === "INVERT" ? "flipped (U/D on arms)" : "home pose";
     const w = (S.warnings || []).map((x) => `<div class="warn">⚠ ${x}</div>`).join("");
     $("est").innerHTML = (S.solution_info && S.solution_info.robot_string
-      ? `Arduino: <code>MOVE ${S.settings.delay} 0 ${S.solution_info.robot_string}</code>` : "") + w;
+      ? `Robot moves: <code>${S.solution_info.robot_string}</code> <span class="small">(sent as SEQ, sliders clamp at L)</span>` : "") + w;
   }
   function chip(id, cls, txt) {
     const c = $(id);
@@ -264,21 +263,34 @@
       const ph = { moving: "robot presenting", capture: "📷 capture on phone", captured: "checking…",
         confirm: "", confirmed: "turning back", reverting: "turning back" }[sc.phase] ?? sc.phase;
       const head = `Scanning ${NAMES[sc.color]} (${sc.index + 1}/${sc.total})`;
-      if (sc.phase === "confirm") {
-        if (ban.dataset.mode !== "confirm" + sc.index) {
-          ban.dataset.mode = "confirm" + sc.index;
-          ban.innerHTML = `${head} — check the colours in the net
+      const mode = sc.phase + sc.index;
+      if (ban.dataset.mode !== mode) {
+        ban.dataset.mode = mode;
+        const fr = NAMES[S.settings.front], tp = NAMES[S.settings.top];
+        if (sc.phase === "ready") {
+          ban.innerHTML = `<span>Scan mode — load the cube: <b>${fr}</b> in the front arm, <b>${tp}</b> on top</span>
+            <button class="ghost" id="scan-cancel">Cancel</button>
+            <button class="ok" id="scan-begin">Start scanning ▶</button>`;
+          $("scan-cancel").onclick = () => post("/api/scan/cancel");
+          $("scan-begin").onclick = () => post("/api/scan/begin");
+        } else if (sc.phase === "capture") {
+          ban.innerHTML = `<span>${head} — aim the phone, then</span>
+            <button class="ok" id="scan-trigger">📷 Scan face</button>`;
+          $("scan-trigger").onclick = () => post("/api/scan/trigger");
+        } else if (sc.phase === "confirm") {
+          ban.innerHTML = `<span>${head} — check the colours in the net</span>
             <button class="ghost" id="scan-retake">↺ Retake</button>
             <button class="ok" id="scan-confirm">Confirm ✓</button>`;
           $("scan-retake").onclick = () => post("/api/scan/retake");
           $("scan-confirm").onclick = () => post("/api/scan/confirm");
+        } else {
+          const ph = { moving: "robot presenting the face…", captured: "checking…", confirmed: "turning back…",
+            reverting: "turning back…" }[sc.phase] ?? sc.phase;
+          ban.textContent = `${head} — ${ph}`;
         }
-      } else {
-        ban.dataset.mode = "";
-        ban.textContent = `${head} — ${ph}`;
       }
-      view.highlight = sc.cells || null;
-      if (sc.view && JSON.stringify(sc.view) !== view._scanView) {
+      view.highlight = sc.phase === "ready" ? null : sc.cells || null;
+      if (sc.phase !== "ready" && sc.view && JSON.stringify(sc.view) !== view._scanView) {
         view._scanView = JSON.stringify(sc.view);
         view.setPose(sc.view, 450);
       }
@@ -359,7 +371,6 @@
   $("btn-reset").onclick = () => post("/api/reset");
   $("speed").oninput = (e) => ($("speed-val").textContent = e.target.value + " ms");
   $("speed").onchange = (e) => post("/api/settings", { delay: +e.target.value });
-  $("auto-capture").onchange = (e) => post("/api/settings", { auto_capture: e.target.checked });
   $("pb-first").onclick = () => previewTo(0);
   $("pb-prev").onclick = () => previewTo(pbPos - 1);
   $("pb-next").onclick = () => previewTo(pbPos + 1);
@@ -367,9 +378,13 @@
   $("plan-reset").onclick = () => post("/api/plan/reset").then(loadPlan);
   $("jog-go").onclick = () => post("/api/robot/jog", { seq: $("jog-free").value });
   document.addEventListener("keydown", (e) => {
-    if (!S || !S.scan || S.scan.phase !== "confirm" || e.target.tagName === "INPUT") return;
-    if (e.key === "Enter") post("/api/scan/confirm");
-    else if (e.key.toLowerCase() === "r") post("/api/scan/retake");
+    if (!S || !S.scan || e.target.tagName === "INPUT") return;
+    const ph = S.scan.phase;
+    if (e.key === "Enter") {
+      if (ph === "ready") post("/api/scan/begin");
+      else if (ph === "capture") post("/api/scan/trigger");
+      else if (ph === "confirm") post("/api/scan/confirm");
+    } else if (e.key.toLowerCase() === "r" && ph === "confirm") post("/api/scan/retake");
   });
   $("btn-theme").onclick = () => document.body.classList.toggle("light");
   $("btn-quit").onclick = () => {

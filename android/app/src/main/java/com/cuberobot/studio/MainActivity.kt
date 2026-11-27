@@ -63,6 +63,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
     private lateinit var retakeBtn: Button
     private lateinit var confirmBtn: Button
     @Volatile private var reviewing = false
+    @Volatile private var scanReady = false
     private lateinit var connectPanel: LinearLayout
     private lateinit var hostEdit: EditText
     private lateinit var camToggle: Button
@@ -159,7 +160,7 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             text = "Drag the 4 blue corners onto the face the robot shows."
         }
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        captureBtn = bigButton("Capture", GRAD) { captureNow() }
+        captureBtn = bigButton("📷 Scan face", GRAD) { if (scanReady) beginScan() else captureNow() }
         resetBtn = bigButton("Reset grid", "#24203d") { overlay.resetSquare() }
         retakeBtn = bigButton("↺ Retake", "#24203d") { answerReview("retake") }
         confirmBtn = bigButton("Confirm ✓ next face", GRAD) { answerReview("confirm") }
@@ -342,6 +343,35 @@ class MainActivity : AppCompatActivity(), Link.Listener {
         }
     }
 
+    /** Scan mode armed: wait for the user to load the cube and press Start scanning. */
+    private fun setReady(on: Boolean, front: String = "", top: String = "") {
+        scanReady = on
+        if (on) {
+            setReview(false)
+            waitingCapture = false
+            showCamera(true)
+            captureBtn.text = "Start scanning ▶"
+            captureBtn.isEnabled = true
+            prompt.text = "Scan mode: put ${front.uppercase()} in the front arm and ${top.uppercase()} on top, " +
+                "fit the 4 blue corners to where the robot shows the face, then tap Start scanning."
+        } else {
+            captureBtn.text = "📷 Scan face"
+        }
+    }
+
+    private fun beginScan() {
+        captureBtn.isEnabled = false
+        link.post("/api/scan/begin", JSONObject()) { res ->
+            ui.post {
+                captureBtn.isEnabled = true
+                if (res != null && res.optBoolean("ok", false)) {
+                    setReady(false)
+                    prompt.text = "Robot is presenting the first face…"
+                } else prompt.text = "Could not start: ${res?.optString("error") ?: "no connection"}"
+            }
+        }
+    }
+
     /** Review step: freeze the captured colours until the user confirms or retakes. */
     private fun setReview(on: Boolean) {
         reviewing = on
@@ -431,7 +461,14 @@ class MainActivity : AppCompatActivity(), Link.Listener {
 
     override fun onEvent(ev: JSONObject) {
         when (ev.optString("type")) {
+            "scan_ready" -> ui.post {
+                setReady(true, ev.optString("front"), ev.optString("top"))
+            }
+            "capture_now" -> ui.post {
+                if (waitingCapture && !reviewing) captureNow()
+            }
             "scan_prompt" -> ui.post {
+                setReady(false)
                 setReview(false)
                 promptIndex = ev.optInt("index")
                 val name = ev.optString("color_name").uppercase()
@@ -440,14 +477,8 @@ class MainActivity : AppCompatActivity(), Link.Listener {
                 showCamera(true)
                 captureBtn.isEnabled = true
                 val hint = ev.optString("manual_hint", "")
-                prompt.text = "Scan $name face  (${promptIndex + 1}/$total)" +
+                prompt.text = "Aim at the $name face  (${promptIndex + 1}/$total), then tap Scan face" +
                     if (hint.isNotEmpty() && hint != "null") "\n$hint" else ""
-                autoCaptureRunnable?.let { ui.removeCallbacks(it) }
-                if (ev.optBoolean("auto", true)) {
-                    val r = Runnable { if (waitingCapture) captureNow() }
-                    autoCaptureRunnable = r
-                    ui.postDelayed(r, ev.optLong("settle_ms", 500) + 250)
-                }
             }
             "scan_review" -> ui.post {
                 showCamera(true)
@@ -470,8 +501,17 @@ class MainActivity : AppCompatActivity(), Link.Listener {
             }
             "state" -> {
                 val scanning = ev.optString("busy_task") == "scan"
-                if (!scanning && (waitingCapture || reviewing)) ui.post {
+                val sc = ev.optJSONObject("scan")
+                val phase = sc?.optString("phase") ?: ""
+                if (scanning && phase == "ready" && !scanReady) ui.post {
+                    val st = ev.optJSONObject("settings")
+                    val names = mapOf("W" to "white", "Y" to "yellow", "R" to "red", "O" to "orange",
+                        "B" to "blue", "G" to "green")
+                    setReady(true, names[st?.optString("front")] ?: "", names[st?.optString("top")] ?: "")
+                }
+                if (!scanning && (waitingCapture || reviewing || scanReady)) ui.post {
                     waitingCapture = false
+                    setReady(false)
                     setReview(false)
                     showCamera(userCamera)
                 }

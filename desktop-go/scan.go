@@ -23,24 +23,46 @@ type ScanStep struct {
 }
 
 type ScanPlan struct {
+	Version    int        `json:"version"`
 	CameraFace string     `json:"camera_face"`
 	Steps      []ScanStep `json:"steps"`
 }
 
 func defaultPlan() ScanPlan {
+	// every slider that holds the cube is at L (clamped); R = released
 	a := func(id string) ScanStep {
 		return ScanStep{ID: id, Axis: "front/back",
 			Present: "RLLLFRBR{d}fLbR{d}FLBL{d}RRLR{d}frbl{d}",
-			Revert:  "fCfCbCbC{d}RCLC{d}FCBC",
+			Revert:  "fCfCbCbC{d}RLLL{d}",
 			View:    []string{"z"}, Keep: []string{"z"}}
 	}
-	return ScanPlan{CameraFace: "U", Steps: []ScanStep{
+	return ScanPlan{CameraFace: "U", Version: 2, Steps: []ScanStep{
 		a("A1"), a("A2"), a("A3"), a("A4"),
 		{ID: "B1", Axis: "left/right", Present: "RLLLFRBR{d}rrll{d}",
-			Revert: "rCrClClC{d}FCBC{d}RCLC", View: []string{"x"}, Keep: []string{}},
+			Revert: "rCrClClC{d}FLBL{d}", View: []string{"x"}, Keep: []string{}},
 		{ID: "B2", Axis: "left/right", Present: "FLBLRRLR{d}rRlL{d}RLLL{d}FRBR{d}rllr{d}",
-			Revert: "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC", View: []string{"x'"}, Keep: []string{}},
+			Revert: "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}", View: []string{"x'"}, Keep: []string{}},
 	}}
+}
+
+// v1 defaults left the sliders at C; saved plans are upgraded in place to clamp at L.
+var v1Upgrade = map[string]string{
+	"fCfCbCbC{d}RCLC{d}FCBC":                      "fCfCbCbC{d}RLLL{d}",
+	"rCrClClC{d}FCBC{d}RCLC":                      "rCrClClC{d}FLBL{d}",
+	"rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RCLC{d}FCBC": "rRlL{d}FLBL{d}RRLR{d}rCrClClC{d}RLLL{d}",
+}
+
+func upgradePlan(p ScanPlan) ScanPlan {
+	if p.Version >= 2 {
+		return p
+	}
+	for i := range p.Steps {
+		if n, ok := v1Upgrade[p.Steps[i].Revert]; ok {
+			p.Steps[i].Revert = n
+		}
+	}
+	p.Version = 2
+	return p
 }
 
 func loadPlan(dir string) ScanPlan {
@@ -51,7 +73,7 @@ func loadPlan(dir string) ScanPlan {
 			if p.CameraFace == "" {
 				p.CameraFace = "U"
 			}
-			return p
+			return upgradePlan(p)
 		}
 	}
 	return defaultPlan()
